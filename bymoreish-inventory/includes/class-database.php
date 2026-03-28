@@ -374,6 +374,7 @@ class Bymoreish_Database {
 			return;
 		}
 
+		// Default credential – must be changed after first login.
 		$password_hash = wp_hash_password( 'bymoreish2024' );
 
 		$this->wpdb->insert(
