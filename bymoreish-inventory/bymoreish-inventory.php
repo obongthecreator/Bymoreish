@@ -26,6 +26,7 @@ define( 'BYMOREISH_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 $bym_includes = [
 	'includes/class-database.php',
 	'includes/class-auth.php',
+	'includes/class-ajax.php',
 	'includes/class-router.php',
 	'includes/class-assets.php',
 ];
@@ -64,6 +65,7 @@ add_action( 'init',                  'bymoreish_init' );
 add_action( 'template_redirect',     'bymoreish_template_redirect' );
 add_action( 'wp_enqueue_scripts',    'bymoreish_enqueue_assets' );
 add_filter( 'query_vars',            'bymoreish_query_vars' );
+add_action( 'wp_loaded',             'bymoreish_register_ajax_hooks' );
 
 // ---------------------------------------------------------------------------
 // Session bootstrap (must happen before headers are sent)
@@ -112,6 +114,12 @@ function bymoreish_query_vars( $vars ) {
 
 function bymoreish_init() {
 	bymoreish_register_rewrite_rules();
+}
+
+function bymoreish_register_ajax_hooks() {
+	if ( class_exists( 'Bymoreish_Ajax' ) ) {
+		Bymoreish_Ajax::get_instance()->register_hooks();
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +197,8 @@ HTML;
 		}
 
 		$profile_url = esc_url( home_url( '/bymoreish/profile' ) );
-		$logout_url  = esc_url( home_url( '/bymoreish/login?action=logout' ) );
+		$logout_nonce = (string) ( $_SESSION['bym_nonce'] ?? '' );
+		$logout_url  = esc_url( home_url( '/bymoreish/login?action=logout&_bym_nonce=' . rawurlencode( $logout_nonce ) ) );
 
 		$nav_html = <<<HTML
 		<aside class="fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 border-r border-white/10 flex flex-col">
