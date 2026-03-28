@@ -333,14 +333,28 @@ $today = current_time( 'l, j F Y' );
 	<!-- Page body -->
 	<div class="flex-1 px-4 sm:px-6 lg:px-8 py-8 space-y-8">
 
-		<!-- ── Date banner + mobile history link ── -->
+		<!-- Hidden branch reference for JS -->
+		<input type="hidden" id="bym-branch-id" value="<?php echo esc_attr( $branch_id ); ?>">
+
+		<!-- ── Date picker + search + mobile history link ── -->
 		<div class="fade-up delay-1 flex flex-wrap items-center justify-between gap-3">
-			<div class="flex items-center gap-3 px-5 py-3 rounded-xl"
-			     style="background:rgba(76,176,80,0.08);border:1px solid rgba(76,176,80,0.18);">
-				<iconify-icon icon="solar:calendar-linear" style="font-size:1.1rem;color:#4CB050;"></iconify-icon>
-				<div>
-					<p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Stock Date</p>
-					<p class="text-sm font-bold text-white"><?php echo esc_html( $today ); ?></p>
+			<div class="flex flex-wrap items-center gap-4">
+				<div class="flex items-center gap-3 px-5 py-3 rounded-xl"
+				     style="background:rgba(76,176,80,0.08);border:1px solid rgba(76,176,80,0.18);">
+					<iconify-icon icon="solar:calendar-linear" style="font-size:1.1rem;color:#4CB050;"></iconify-icon>
+					<div class="space-y-0.5">
+						<p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Stock Date</p>
+						<input type="date" id="stock-date-picker"
+						       value="<?php echo esc_attr( current_time( 'Y-m-d' ) ); ?>"
+						       class="bym-date">
+					</div>
+				</div>
+				<div class="relative">
+					<input type="text" id="stock-search" placeholder="Search items…"
+					       class="bym-input pl-9 text-sm" style="min-width:180px;">
+					<iconify-icon icon="solar:magnifer-linear"
+					              class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+					              style="font-size:1rem;"></iconify-icon>
 				</div>
 			</div>
 			<a href="<?php echo esc_url( home_url( '/bymoreish/history/stock' ) ); ?>"
@@ -437,11 +451,12 @@ $today = current_time( 'l, j F Y' );
 								<th class="w-28 text-center">Total Stock</th>
 								<th class="w-32 text-center">Sold Stock</th>
 								<th class="w-28 text-center">Stock Left</th>
+								<th class="w-36 text-center">Remarks</th>
 							</tr>
 						</thead>
-						<tbody id="stock-items-body">
+						<tbody id="stock-table-body">
 							<tr id="stock-empty-row">
-								<td colspan="6" class="text-center py-10 text-gray-500 text-xs">
+								<td colspan="7" class="text-center py-10 text-gray-500 text-xs">
 									<iconify-icon icon="solar:refresh-linear" class="animate-spin text-xl block mx-auto mb-2"></iconify-icon>
 									Loading stock items…
 								</td>
@@ -453,14 +468,46 @@ $today = current_time( 'l, j F Y' );
 									<iconify-icon icon="solar:calculator-minimalistic-linear" class="inline mr-1"></iconify-icon>
 									Totals
 								</td>
-								<td class="text-center tabular-nums" id="total-in-stock">—</td>
-								<td class="text-center tabular-nums" id="total-new-stock">—</td>
-								<td class="text-center tabular-nums" id="total-total-stock">—</td>
-								<td class="text-center tabular-nums" id="total-sold-stock">—</td>
-								<td class="text-center tabular-nums" id="total-stock-left">—</td>
+								<td class="text-center tabular-nums" id="summary-in">—</td>
+								<td class="text-center tabular-nums" id="summary-new">—</td>
+								<td class="text-center tabular-nums" id="summary-total">—</td>
+								<td class="text-center tabular-nums" id="summary-sold">—</td>
+								<td class="text-center tabular-nums" id="summary-left">—</td>
+								<td></td>
 							</tr>
 						</tfoot>
 					</table>
+				</div>
+			</div>
+		</section>
+
+		<!-- ── Import Stock Form ── -->
+		<section class="fade-up delay-3">
+			<div class="glass rounded-2xl overflow-hidden">
+				<div class="flex items-center justify-between px-6 py-4"
+				     style="border-bottom:1px solid rgba(255,255,255,0.07);">
+					<div class="flex items-center gap-3">
+						<div class="w-8 h-8 rounded-lg flex items-center justify-center"
+						     style="background:rgba(76,176,80,0.12);">
+							<iconify-icon icon="solar:arrow-down-linear" style="color:#4CB050;font-size:1.1rem;"></iconify-icon>
+						</div>
+						<h2 class="text-sm font-bold text-white">Record New Imports</h2>
+					</div>
+					<button id="btn-save-import" type="button"
+					        class="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all hover:scale-105 active:scale-95"
+					        style="background:linear-gradient(135deg,#4CB050,#3a9040);color:#fff;">
+						<iconify-icon icon="solar:import-linear" style="font-size:1rem;"></iconify-icon>
+						Save Imports
+					</button>
+				</div>
+				<div class="p-6">
+					<div id="import-items-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+						<!-- Populated by JS -->
+						<div class="text-center py-6 text-gray-500 text-xs col-span-full">
+							<iconify-icon icon="solar:refresh-linear" class="animate-spin text-xl block mx-auto mb-2"></iconify-icon>
+							Loading stock items…
+						</div>
+					</div>
 				</div>
 			</div>
 		</section>
@@ -504,7 +551,7 @@ $today = current_time( 'l, j F Y' );
 					<div id="stock-save-status" class="hidden rounded-xl px-4 py-3 text-xs font-medium"></div>
 
 					<!-- Submit -->
-					<button id="submit-stock" type="button"
+					<button id="btn-save-stock" type="button"
 					        class="w-full flex items-center justify-center gap-2 py-3.5 rounded-full text-sm font-bold transition-all duration-300 hover:scale-105 active:scale-95"
 					        style="background:linear-gradient(135deg,#4CB050,#3a9040);color:#fff;">
 						<iconify-icon icon="solar:diskette-linear" style="font-size:1.2rem;"></iconify-icon>

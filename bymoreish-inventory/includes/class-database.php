@@ -326,6 +326,7 @@ class Bymoreish_Database {
 		$this->insert_default_branches();
 		$this->insert_default_superadmin();
 		$this->insert_default_products();
+		$this->insert_default_stock_items();
 	}
 
 	private function insert_default_branches() {
@@ -522,6 +523,52 @@ class Bymoreish_Database {
 					);
 				}
 			}
+		}
+	}
+
+	/**
+	 * Inserts the 12 stock/ingredient items from the Bymoreish sales record
+	 * sheet.  These are stored in bym_products with category = 'Stock Item'
+	 * so they appear in the stock and import forms but NOT in the order menu.
+	 * Uses INSERT IGNORE so it is safe to call multiple times.
+	 */
+	private function insert_default_stock_items() {
+		$products_table = $this->table( self::TABLE_PRODUCTS );
+
+		// Skip if stock items already exist.
+		$existing = (int) $this->wpdb->get_var(
+			"SELECT COUNT(*) FROM {$products_table} WHERE category = 'Stock Item'"
+		);
+		if ( $existing > 0 ) {
+			return;
+		}
+
+		$stock_items = [
+			[ 'name' => 'Egg',            'unit' => 'crate'  ],
+			[ 'name' => 'Chicken',         'unit' => 'pack'   ],
+			[ 'name' => 'Sweet Sauce',     'unit' => 'bottle' ],
+			[ 'name' => 'Flour',           'unit' => 'bag'    ],
+			[ 'name' => 'Sweet Chilli',    'unit' => 'bottle' ],
+			[ 'name' => 'Barbecue Sauce',  'unit' => 'bottle' ],
+			[ 'name' => 'Packs',           'unit' => 'pack'   ],
+			[ 'name' => 'Gas',             'unit' => 'kg'     ],
+			[ 'name' => 'Spread',          'unit' => 'jar'    ],
+			[ 'name' => 'Milk',            'unit' => 'tin'    ],
+			[ 'name' => 'Sugar',           'unit' => 'bag'    ],
+			[ 'name' => 'Plantain',        'unit' => 'bunch'  ],
+		];
+
+		foreach ( $stock_items as $item ) {
+			$this->wpdb->query(
+				$this->wpdb->prepare(
+					"INSERT IGNORE INTO {$products_table}
+					 (name, category, price, unit, description, is_active, branch_id)
+					 VALUES (%s, 'Stock Item', '0.00', %s, %s, 1, NULL)",
+					$item['name'],
+					$item['unit'],
+					$item['name'] . ' – stock ingredient'
+				)
+			);
 		}
 	}
 

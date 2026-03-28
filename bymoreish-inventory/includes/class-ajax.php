@@ -23,6 +23,7 @@ class Bymoreish_Ajax {
 		'bym_login',
 		'bym_logout',
 		'bym_get_products',
+		'bym_get_stock_items',
 		'bym_save_order',
 		'bym_update_order_status',
 		'bym_delete_order',
@@ -30,6 +31,7 @@ class Bymoreish_Ajax {
 		'bym_get_order_items',
 		'bym_save_stock',
 		'bym_get_stock',
+		'bym_save_import',
 		'bym_save_expense',
 		'bym_get_expenses',
 		'bym_get_expense_items',
@@ -274,6 +276,9 @@ class Bymoreish_Ajax {
 		$db             = Bymoreish_Database::get_instance();
 		$branch_id      = (int) ( $_POST['branch_id'] ?? $_GET['branch_id'] ?? 0 );
 		$include_all    = (int) ( $_POST['include_inactive'] ?? $_GET['include_inactive'] ?? 0 );
+		$exclude_stock  = (int) ( $_POST['exclude_stock_items'] ?? $_GET['exclude_stock_items'] ?? 0 );
+
+		$stock_filter = $exclude_stock ? " AND category != 'Stock Item'" : '';
 
 		if ( $branch_id > 0 ) {
 			global $wpdb;
@@ -282,7 +287,7 @@ class Bymoreish_Ajax {
 				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				$products = $wpdb->get_results(
 					$wpdb->prepare(
-						"SELECT * FROM {$products_table} WHERE (branch_id = %d OR branch_id IS NULL) ORDER BY category ASC, name ASC",
+						"SELECT * FROM {$products_table} WHERE (branch_id = %d OR branch_id IS NULL){$stock_filter} ORDER BY category ASC, name ASC",
 						$branch_id
 					),
 					ARRAY_A
@@ -291,7 +296,7 @@ class Bymoreish_Ajax {
 				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				$products = $wpdb->get_results(
 					$wpdb->prepare(
-						"SELECT * FROM {$products_table} WHERE (branch_id = %d OR branch_id IS NULL) AND is_active = 1 ORDER BY category ASC, name ASC",
+						"SELECT * FROM {$products_table} WHERE (branch_id = %d OR branch_id IS NULL) AND is_active = 1{$stock_filter} ORDER BY category ASC, name ASC",
 						$branch_id
 					),
 					ARRAY_A
@@ -302,6 +307,10 @@ class Bymoreish_Ajax {
 				$products = $db->get_rows( Bymoreish_Database::TABLE_PRODUCTS, [], 'category ASC, name ASC' );
 			} else {
 				$products = $db->get_rows( Bymoreish_Database::TABLE_PRODUCTS, [ 'is_active' => 1 ], 'category ASC, name ASC' );
+			}
+			if ( $exclude_stock ) {
+				$products = array_filter( $products, function( $p ) { return ( $p['category'] ?? '' ) !== 'Stock Item'; } );
+				$products = array_values( $products );
 			}
 		}
 
@@ -401,26 +410,33 @@ class Bymoreish_Ajax {
 		$this->check_request();
 
 		$branch_id  = $this->resolve_branch_id( (int) ( $_POST['branch_id'] ?? 0 ) );
-		$date_from  = sanitize_text_field( wp_unslash( $_POST['date_from'] ?? current_time( 'Y-m-d' ) ) );
-		$date_to    = sanitize_text_field( wp_unslash( $_POST['date_to']   ?? current_time( 'Y-m-d' ) ) );
+		// Accept both naming conventions from the frontend.
+		$date_from  = sanitize_text_field( wp_unslash( $_POST['date_from'] ?? $_POST['from'] ?? current_time( 'Y-m-d' ) ) );
+		$date_to    = sanitize_text_field( wp_unslash( $_POST['date_to']   ?? $_POST['to']   ?? current_time( 'Y-m-d' ) ) );
 
 		global $wpdb;
 		$oi_table = 'bym_order_items';
 		$o_table  = 'bym_orders';
 
+		// Per-product aggregation (delivered orders only).
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT oi.product_name,
-				        SUM(oi.quantity)   AS total_qty,
-				        SUM(oi.item_total) AS total_revenue
+				"SELECT oi.product_id   AS id,
+				        oi.product_name AS name,
+				        'Menu'          AS category,
+				        SUM(oi.quantity)   AS total_sold,
+				        SUM(oi.item_total) AS total_revenue,
+				        MAX(o.order_date)  AS last_sold,
+				        (SELECT u.full_name FROM bym_users u
+				         WHERE u.id = MAX(o.staff_id) LIMIT 1) AS sold_by
 				   FROM {$oi_table} oi
 				   JOIN {$o_table} o ON o.id = oi.order_id
 				  WHERE o.branch_id  = %d
 				    AND o.order_date BETWEEN %s AND %s
 				    AND o.status     = 'delivered'
 				  GROUP BY oi.product_id, oi.product_name
-				  ORDER BY total_qty DESC",
+				  ORDER BY total_sold DESC",
 				$branch_id,
 				$date_from,
 				$date_to
@@ -428,7 +444,54 @@ class Bymoreish_Ajax {
 			ARRAY_A
 		) ?: [];
 
-		$this->success( $rows );
+		// Aggregate totals.
+		$total_sold    = 0;
+		$total_revenue = 0.0;
+		foreach ( $rows as $r ) {
+			$total_sold    += (int) $r['total_sold'];
+			$total_revenue += (float) $r['total_revenue'];
+		}
+
+		// Most / least popular.
+		$most_popular  = ! empty( $rows ) ? [ 'name' => $rows[0]['name'], 'qty' => (int) $rows[0]['total_sold'] ] : null;
+		$least_popular = ! empty( $rows ) ? [ 'name' => end( $rows )['name'], 'qty' => (int) end( $rows )['total_sold'] ] : null;
+
+		// Daily trend data for sparklines.
+		$daily = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT o.order_date AS dt,
+				        SUM(oi.quantity)   AS qty,
+				        SUM(oi.item_total) AS rev
+				   FROM {$oi_table} oi
+				   JOIN {$o_table} o ON o.id = oi.order_id
+				  WHERE o.branch_id  = %d
+				    AND o.order_date BETWEEN %s AND %s
+				    AND o.status     = 'delivered'
+				  GROUP BY o.order_date
+				  ORDER BY o.order_date ASC",
+				$branch_id,
+				$date_from,
+				$date_to
+			),
+			ARRAY_A
+		) ?: [];
+
+		$trend_labels  = array_column( $daily, 'dt' );
+		$trend_sold    = array_map( 'intval', array_column( $daily, 'qty' ) );
+		$trend_revenue = array_map( 'floatval', array_column( $daily, 'rev' ) );
+
+		$this->success(
+			[
+				'products'      => $rows,
+				'total_sold'    => $total_sold,
+				'total_revenue' => $total_revenue,
+				'most_popular'  => $most_popular,
+				'least_popular' => $least_popular,
+				'trend_labels'  => $trend_labels,
+				'trend_sold'    => $trend_sold,
+				'trend_revenue' => $trend_revenue,
+			]
+		);
 	}
 
 	// -----------------------------------------------------------------------
@@ -530,6 +593,7 @@ class Bymoreish_Ajax {
 		// Deduct stock immediately if order starts as delivered.
 		if ( $status === 'delivered' ) {
 			$this->deduct_stock_for_order( $order_id, $branch_id );
+			$this->refresh_financial_summary( $branch_id, current_time( 'Y-m-d' ) );
 		}
 
 		$this->success( [ 'order_id' => $order_id, 'order_number' => $order_number ], 'Order saved.' );
@@ -568,6 +632,7 @@ class Bymoreish_Ajax {
 		// Deduct stock only when transitioning to 'delivered' for the first time.
 		if ( $new_status === 'delivered' && $old_status !== 'delivered' ) {
 			$this->deduct_stock_for_order( $order_id, (int) $order['branch_id'] );
+			$this->refresh_financial_summary( (int) $order['branch_id'], $order['order_date'] );
 		}
 
 		$this->success( null, 'Order status updated.' );
@@ -901,6 +966,139 @@ class Bymoreish_Ajax {
 				'pages'   => $pages,
 			]
 		);
+	}
+
+	/**
+	 * Returns only products with category = 'Stock Item' – the 12 ingredient
+	 * items used in the stock & import forms.
+	 */
+	public function handle_bym_get_stock_items(): void {
+		$this->check_request();
+
+		global $wpdb;
+		$p_table = 'bym_products';
+
+		$rows = $wpdb->get_results(
+			"SELECT id, name, category, unit FROM {$p_table}
+			 WHERE category = 'Stock Item' AND is_active = 1
+			 ORDER BY name ASC",
+			ARRAY_A
+		) ?: [];
+
+		$this->success( $rows );
+	}
+
+	/**
+	 * Saves one or more import entries (bym_imports).  After inserting, the
+	 * corresponding stock rows for the same date are refreshed so that
+	 * new_stock and total_stock reflect the newly recorded imports.
+	 */
+	public function handle_bym_save_import(): void {
+		$this->check_request();
+
+		$user       = $this->current_user();
+		$branch_id  = $this->resolve_branch_id( (int) ( $_POST['branch_id'] ?? 0 ) );
+		$import_date = sanitize_text_field( wp_unslash( $_POST['import_date'] ?? current_time( 'Y-m-d' ) ) );
+
+		$entries_raw = wp_unslash( $_POST['entries'] ?? '' );
+		$entries     = is_string( $entries_raw ) ? json_decode( $entries_raw, true ) : $entries_raw;
+
+		if ( empty( $entries ) || ! is_array( $entries ) ) {
+			$this->error( 'Import entries are required.' );
+		}
+
+		$db    = Bymoreish_Database::get_instance();
+		$saved = 0;
+
+		global $wpdb;
+
+		foreach ( $entries as $entry ) {
+			$product_id = (int) ( $entry['product_id'] ?? 0 );
+			$quantity   = (int) ( $entry['quantity']   ?? 0 );
+
+			if ( $product_id <= 0 || $quantity <= 0 ) {
+				continue;
+			}
+
+			// Insert into bym_imports.
+			$db->insert_row(
+				Bymoreish_Database::TABLE_IMPORTS,
+				[
+					'product_id'  => $product_id,
+					'branch_id'   => $branch_id,
+					'quantity'    => $quantity,
+					'import_date' => $import_date,
+					'staff_id'    => $user['id'],
+				]
+			);
+
+			// Refresh stock row for this product/date so new_stock is current.
+			$import_total = (int) $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT COALESCE(SUM(quantity), 0) FROM bym_imports
+					 WHERE product_id = %d AND branch_id = %d AND import_date = %s",
+					$product_id,
+					$branch_id,
+					$import_date
+				)
+			);
+
+			$stock_row = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT * FROM bym_stock
+					 WHERE product_id = %d AND branch_id = %d AND stock_date = %s
+					 LIMIT 1",
+					$product_id,
+					$branch_id,
+					$import_date
+				),
+				ARRAY_A
+			);
+
+			if ( $stock_row ) {
+				$in_stock    = (int) $stock_row['in_stock'];
+				$sold_stock  = (int) $stock_row['sold_stock'];
+				$total_stock = $in_stock + $import_total;
+				$stock_left  = $total_stock - $sold_stock;
+
+				$db->update_row(
+					Bymoreish_Database::TABLE_STOCK,
+					[
+						'new_stock'   => $import_total,
+						'total_stock' => $total_stock,
+						'stock_left'  => $stock_left,
+					],
+					[ 'id' => (int) $stock_row['id'] ]
+				);
+			} else {
+				// Create a new stock row with carried-over in_stock.
+				$prev     = $db->get_latest_stock( $product_id, $branch_id );
+				$in_stock = ( $prev && $prev['stock_date'] < $import_date )
+					? max( 0, (int) $prev['stock_left'] )
+					: 0;
+
+				$total_stock = $in_stock + $import_total;
+
+				$db->insert_row(
+					Bymoreish_Database::TABLE_STOCK,
+					[
+						'product_id'  => $product_id,
+						'branch_id'   => $branch_id,
+						'in_stock'    => $in_stock,
+						'new_stock'   => $import_total,
+						'total_stock' => $total_stock,
+						'sold_stock'  => 0,
+						'stock_left'  => $total_stock,
+						'stock_date'  => $import_date,
+						'staff_id'    => $user['id'],
+					]
+				);
+			}
+
+			++$saved;
+		}
+
+		$this->success( [ 'saved' => $saved ], 'Import saved.' );
 	}
 
 	// -----------------------------------------------------------------------
@@ -1845,5 +2043,77 @@ class Bymoreish_Ajax {
 				);
 			}
 		}
+	}
+
+	/**
+	 * Recompute and upsert the bym_financial_summary row for a branch+date
+	 * based on the current delivered orders and recorded expenses.
+	 *
+	 * Called automatically whenever an order transitions to 'delivered'.
+	 *
+	 * @param int    $branch_id
+	 * @param string $date  Y-m-d
+	 */
+	private function refresh_financial_summary( int $branch_id, string $date ): void {
+		global $wpdb;
+		$o_table  = 'bym_orders';
+		$e_table  = 'bym_expenses';
+		$fs_table = 'bym_financial_summary';
+
+		// Aggregate delivered-order revenue for the date.
+		$sales = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT COALESCE(SUM(grand_total), 0)      AS total_sales,
+				        COALESCE(SUM(transfer_amount), 0) AS transfer_sales,
+				        COALESCE(SUM(card_amount), 0)     AS card_sales,
+				        COALESCE(SUM(cash_amount), 0)     AS cash_sales
+				   FROM {$o_table}
+				  WHERE branch_id = %d AND order_date = %s AND status = 'delivered'",
+				$branch_id,
+				$date
+			),
+			ARRAY_A
+		);
+
+		$total_sales    = (float) ( $sales['total_sales']    ?? 0 );
+		$transfer_sales = (float) ( $sales['transfer_sales'] ?? 0 );
+		$card_sales     = (float) ( $sales['card_sales']     ?? 0 );
+		$cash_sales     = (float) ( $sales['cash_sales']     ?? 0 );
+
+		// Aggregate expenses for the date.
+		$total_expenses = (float) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COALESCE(SUM(grand_total), 0) FROM {$e_table}
+				  WHERE branch_id = %d AND expense_date = %s",
+				$branch_id,
+				$date
+			)
+		);
+
+		$profit = $total_sales - $total_expenses;
+
+		// Upsert.
+		$wpdb->query(
+			$wpdb->prepare(
+				"INSERT INTO {$fs_table}
+				 (branch_id, summary_date, total_sales, transfer_sales, card_sales, cash_sales, total_expenses, profit)
+				 VALUES (%d, %s, %f, %f, %f, %f, %f, %f)
+				 ON DUPLICATE KEY UPDATE
+				   total_sales    = VALUES(total_sales),
+				   transfer_sales = VALUES(transfer_sales),
+				   card_sales     = VALUES(card_sales),
+				   cash_sales     = VALUES(cash_sales),
+				   total_expenses = VALUES(total_expenses),
+				   profit         = VALUES(profit)",
+				$branch_id,
+				$date,
+				$total_sales,
+				$transfer_sales,
+				$card_sales,
+				$cash_sales,
+				$total_expenses,
+				$profit
+			)
+		);
 	}
 }

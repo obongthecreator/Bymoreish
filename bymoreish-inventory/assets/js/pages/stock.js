@@ -21,6 +21,8 @@ const StockPage = (() => {
   let _rows = [];
   /** @type {string} */
   let _currentDate = BymoreishApp.todayISO();
+  /** @type {Array} stock item products */
+  let _stockItems = [];
 
   /* ----------------------------------------------------------
      Init
@@ -28,9 +30,11 @@ const StockPage = (() => {
 
   function init() {
     _bindDatePicker();
+    _loadStockItems();
     _loadStock(_currentDate);
     _bindSave();
     _bindSearch();
+    _bindImportSave();
   }
 
   /* ----------------------------------------------------------
@@ -46,6 +50,20 @@ const StockPage = (() => {
       _currentDate = e.target.value || BymoreishApp.todayISO();
       _loadStock(_currentDate);
     });
+  }
+
+  /* ----------------------------------------------------------
+     Load stock items (ingredients) for the import form
+     ---------------------------------------------------------- */
+
+  async function _loadStockItems() {
+    try {
+      const items = await BymoreishApp.bymAjax('bym_get_stock_items', {});
+      _stockItems = Array.isArray(items) ? items : [];
+      _renderImportForm(_stockItems);
+    } catch (err) {
+      // Fallback: import grid stays empty
+    }
   }
 
   /* ----------------------------------------------------------
@@ -67,13 +85,14 @@ const StockPage = (() => {
       _rows = Array.isArray(response) ? response : (response.records || []);
 
       if (!_rows || _rows.length === 0) {
-        // Fallback: load products and pre-populate with zeros.
-        await _seedFromProducts(date, container);
+        // Fallback: load stock items (ingredients) and pre-populate with zeros.
+        await _seedFromStockItems(date, container);
       } else {
         _renderTable(_rows, container);
       }
 
       _updateSummary();
+      _updateKPIs();
     } catch (err) {
       BymoreishApp.showToast(err.message || 'Failed to load stock.', 'error');
     } finally {
@@ -83,15 +102,26 @@ const StockPage = (() => {
 
   /**
    * When no stock records exist for the chosen date, pre-fill the table
-   * with products so the user can enter sold_stock directly.
+   * with stock items (ingredients) so the user can enter sold_stock directly.
    */
-  async function _seedFromProducts(date, container) {
+  async function _seedFromStockItems(date, container) {
     try {
-      const products = await BymoreishApp.bymAjax('bym_get_products', {
-        branch_id: _getBranchId(),
-      });
+      // Use already-loaded stock items, or fetch them.
+      let items = _stockItems;
+      if (!items || items.length === 0) {
+        items = await BymoreishApp.bymAjax('bym_get_stock_items', {});
+        _stockItems = Array.isArray(items) ? items : [];
+        items = _stockItems;
+      }
 
-      _rows = (products || []).map((p) => ({
+      // If still no stock items, try all products as fallback.
+      if (!items || items.length === 0) {
+        items = await BymoreishApp.bymAjax('bym_get_products', {
+          branch_id: _getBranchId(),
+        });
+      }
+
+      _rows = (items || []).map((p) => ({
         product_id:   p.id,
         product_name: p.name,
         product_unit: p.unit,
@@ -107,7 +137,7 @@ const StockPage = (() => {
       _renderTable(_rows, container);
     } catch (err) {
       container.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-500 text-sm">
-        No products found. Please add products first.
+        No stock items found. Please contact admin to set up stock items.
       </td></tr>`;
     }
   }
@@ -220,6 +250,7 @@ const StockPage = (() => {
     row.stock_left  = stockLeft;
 
     _updateSummary();
+    _updateKPIs();
   }
 
   function _handleRemarksInput(e) {
@@ -256,6 +287,30 @@ const StockPage = (() => {
   }
 
   /* ----------------------------------------------------------
+     KPI cards
+     ---------------------------------------------------------- */
+
+  function _updateKPIs() {
+    let totalIn   = 0;
+    let totalNew  = 0;
+    let totalSold = 0;
+    let totalLeft = 0;
+
+    _rows.forEach((row) => {
+      totalIn   += parseInt(row.in_stock,   10) || 0;
+      totalNew  += parseInt(row.new_stock,  10) || 0;
+      totalSold += parseInt(row.sold_stock, 10) || 0;
+      totalLeft += parseInt(row.stock_left, 10) || 0;
+    });
+
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = String(v); };
+    set('kpi-opening', totalIn);
+    set('kpi-imports', totalNew);
+    set('kpi-sold',    totalSold);
+    set('kpi-closing', totalLeft);
+  }
+
+  /* ----------------------------------------------------------
      Search / filter
      ---------------------------------------------------------- */
 
@@ -273,7 +328,7 @@ const StockPage = (() => {
   }
 
   /* ----------------------------------------------------------
-     Save
+     Save stock
      ---------------------------------------------------------- */
 
   function _bindSave() {
@@ -308,6 +363,76 @@ const StockPage = (() => {
       _loadStock(_currentDate);
     } catch (err) {
       BymoreishApp.showToast(err.message || 'Failed to save stock.', 'error');
+    } finally {
+      BymoreishApp.hideLoading();
+    }
+  }
+
+  /* ----------------------------------------------------------
+     Import form
+     ---------------------------------------------------------- */
+
+  function _renderImportForm(items) {
+    const grid = document.getElementById('import-items-grid');
+    if (!grid) return;
+
+    if (!items || items.length === 0) {
+      grid.innerHTML = '<div class="text-center py-6 text-gray-500 text-xs col-span-full">No stock items available.</div>';
+      return;
+    }
+
+    grid.innerHTML = items.map((item) => `
+      <div class="glass rounded-xl p-4 space-y-2">
+        <p class="text-sm font-semibold text-white">${BymoreishApp.escapeHtml(item.name)}</p>
+        <p class="text-xs text-gray-500">${BymoreishApp.escapeHtml(item.unit || '')}</p>
+        <input type="number" min="0" value="0"
+               class="import-qty-input bym-input w-full text-center"
+               data-product-id="${item.id}"
+               placeholder="Qty">
+      </div>
+    `).join('');
+  }
+
+  function _bindImportSave() {
+    const btn = document.getElementById('btn-save-import');
+    if (btn) btn.addEventListener('click', _saveImports);
+  }
+
+  async function _saveImports() {
+    const inputs  = document.querySelectorAll('.import-qty-input');
+    const entries = [];
+
+    inputs.forEach((input) => {
+      const qty = parseInt(input.value, 10) || 0;
+      if (qty > 0) {
+        entries.push({
+          product_id: parseInt(input.dataset.productId, 10),
+          quantity:   qty,
+        });
+      }
+    });
+
+    if (entries.length === 0) {
+      BymoreishApp.showToast('Enter at least one import quantity.', 'warning');
+      return;
+    }
+
+    try {
+      BymoreishApp.showLoading();
+      await BymoreishApp.bymAjax('bym_save_import', {
+        branch_id:   _getBranchId(),
+        import_date: _currentDate,
+        entries,
+      });
+      BymoreishApp.showToast(`Saved ${entries.length} import(s).`, 'success');
+
+      // Reset import inputs.
+      inputs.forEach((input) => { input.value = '0'; });
+
+      // Reload stock to reflect new imports.
+      _loadStock(_currentDate);
+    } catch (err) {
+      BymoreishApp.showToast(err.message || 'Failed to save imports.', 'error');
     } finally {
       BymoreishApp.hideLoading();
     }

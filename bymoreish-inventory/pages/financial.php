@@ -671,6 +671,219 @@ $today = current_time( 'Y-m-d' );
 		/* Trigger Iconify re-scan for dynamically inserted icons */
 		if (window.Iconify) Iconify.scan();
 	};
+
+	/* ── Financial data loader ── */
+	async function loadFinancialData() {
+		const dateInput  = document.getElementById('financial-date');
+		const loadingEl  = document.getElementById('financial-loading');
+		const errorEl    = document.getElementById('financial-error');
+		const selectedDate = dateInput ? dateInput.value : window.bymConfig.today;
+
+		if (loadingEl) loadingEl.classList.remove('hidden');
+		if (errorEl)   errorEl.classList.add('hidden');
+
+		try {
+			const body = new URLSearchParams({
+				action:    'bym_get_financial_summary',
+				nonce:     window.bymConfig.nonce,
+				branch_id: window.bymConfig.branchId,
+				date_from: selectedDate,
+				date_to:   selectedDate,
+			});
+
+			const res  = await fetch(window.bymConfig.ajaxUrl, {
+				method:      'POST',
+				credentials: 'same-origin',
+				headers:     { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body:        body.toString(),
+			});
+			const json = await res.json();
+
+			if (!json || !json.success) {
+				throw new Error(json?.data?.message || 'Failed to load financial data.');
+			}
+
+			const d      = json.data || {};
+			const totals = d.totals || {};
+
+			// If no rows exist, compute from orders directly.
+			if ((!d.rows || d.rows.length === 0) && totals.total_sales === 0) {
+				await loadFinancialFromOrders(selectedDate);
+				return;
+			}
+
+			displayFinancialData(totals, selectedDate);
+		} catch (err) {
+			if (errorEl) {
+				errorEl.textContent = err.message || 'Failed to load data.';
+				errorEl.classList.remove('hidden');
+			}
+		} finally {
+			if (loadingEl) loadingEl.classList.add('hidden');
+		}
+	}
+
+	/**
+	 * Fallback: compute financial figures directly from delivered orders
+	 * and expenses when no bym_financial_summary row exists yet.
+	 */
+	async function loadFinancialFromOrders(selectedDate) {
+		try {
+			// Fetch orders for the date.
+			const ordersBody = new URLSearchParams({
+				action:    'bym_get_orders',
+				nonce:     window.bymConfig.nonce,
+				branch_id: window.bymConfig.branchId,
+				date_from: selectedDate,
+				date_to:   selectedDate,
+			});
+			const ordersRes  = await fetch(window.bymConfig.ajaxUrl, {
+				method: 'POST', credentials: 'same-origin',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: ordersBody.toString(),
+			});
+			const ordersJson = await ordersRes.json();
+			const orders     = (ordersJson?.data?.orders || ordersJson?.data || []);
+
+			let total_sales    = 0;
+			let transfer_sales = 0;
+			let card_sales     = 0;
+			let cash_sales     = 0;
+
+			(Array.isArray(orders) ? orders : []).forEach(o => {
+				if (o.status === 'delivered') {
+					total_sales    += parseFloat(o.grand_total)      || 0;
+					transfer_sales += parseFloat(o.transfer_amount)  || 0;
+					card_sales     += parseFloat(o.card_amount)      || 0;
+					cash_sales     += parseFloat(o.cash_amount)      || 0;
+				}
+			});
+
+			// Fetch expenses for the date.
+			const expBody = new URLSearchParams({
+				action:    'bym_get_expenses',
+				nonce:     window.bymConfig.nonce,
+				branch_id: window.bymConfig.branchId,
+				date_from: selectedDate,
+				date_to:   selectedDate,
+			});
+			const expRes  = await fetch(window.bymConfig.ajaxUrl, {
+				method: 'POST', credentials: 'same-origin',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: expBody.toString(),
+			});
+			const expJson = await expRes.json();
+			const expenses = expJson?.data?.expenses || expJson?.data || [];
+			let total_expenses = 0;
+			(Array.isArray(expenses) ? expenses : []).forEach(e => {
+				total_expenses += parseFloat(e.grand_total) || 0;
+			});
+
+			displayFinancialData({
+				total_sales,
+				transfer_sales,
+				card_sales,
+				cash_sales,
+				total_expenses,
+				profit: total_sales - total_expenses,
+			}, selectedDate);
+		} catch (_) {
+			// Silently fail
+		}
+	}
+
+	function displayFinancialData(totals, selectedDate) {
+		const set = (id, val) => {
+			const el = document.getElementById(id);
+			if (el) el.textContent = window.formatNaira(val);
+		};
+
+		set('fin-total-sales', totals.total_sales    || 0);
+		set('fin-transfer',    totals.transfer_sales  || 0);
+		set('fin-card',        totals.card_sales      || 0);
+		set('fin-cash',        totals.cash_sales      || 0);
+		set('fin-expenses',    totals.total_expenses  || 0);
+
+		const profit = parseFloat(totals.profit) || ((parseFloat(totals.total_sales) || 0) - (parseFloat(totals.total_expenses) || 0));
+		window.updateProfitIndicator(profit);
+
+		// Update date label.
+		const label = document.getElementById('summary-date-label');
+		if (label) label.textContent = selectedDate;
+
+		// Store values for save button.
+		window._currentFinancialData = totals;
+	}
+
+	/* ── Save financial summary ── */
+	async function saveFinancialSummary() {
+		const totals = window._currentFinancialData;
+		if (!totals) {
+			alert('No financial data loaded. Load a date first.');
+			return;
+		}
+
+		const statusEl = document.getElementById('fin-save-status');
+		try {
+			const dateInput  = document.getElementById('financial-date');
+			const selectedDate = dateInput ? dateInput.value : window.bymConfig.today;
+
+			const body = new URLSearchParams({
+				action:          'bym_save_financial_summary',
+				nonce:           window.bymConfig.nonce,
+				branch_id:       window.bymConfig.branchId,
+				summary_date:    selectedDate,
+				total_sales:     totals.total_sales    || 0,
+				transfer_sales:  totals.transfer_sales || 0,
+				card_sales:      totals.card_sales     || 0,
+				cash_sales:      totals.cash_sales     || 0,
+				total_expenses:  totals.total_expenses || 0,
+			});
+
+			const res  = await fetch(window.bymConfig.ajaxUrl, {
+				method: 'POST', credentials: 'same-origin',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: body.toString(),
+			});
+			const json = await res.json();
+
+			if (statusEl) {
+				statusEl.classList.remove('hidden');
+				if (json?.success) {
+					statusEl.textContent = '✓ Saved successfully';
+					statusEl.style.color = '#4CB050';
+					statusEl.style.background = 'rgba(76,176,80,0.1)';
+				} else {
+					statusEl.textContent = '✗ ' + (json?.data?.message || 'Save failed');
+					statusEl.style.color = '#ef4444';
+					statusEl.style.background = 'rgba(239,68,68,0.1)';
+				}
+				setTimeout(() => statusEl.classList.add('hidden'), 3000);
+			}
+		} catch (err) {
+			if (statusEl) {
+				statusEl.classList.remove('hidden');
+				statusEl.textContent = '✗ Network error';
+				statusEl.style.color = '#ef4444';
+				statusEl.style.background = 'rgba(239,68,68,0.1)';
+				setTimeout(() => statusEl.classList.add('hidden'), 3000);
+			}
+		}
+	}
+
+	/* ── Bind events ── */
+	document.addEventListener('DOMContentLoaded', function () {
+		// Load on page load.
+		loadFinancialData();
+
+		// Load button.
+		const loadBtn = document.getElementById('load-financial');
+		if (loadBtn) loadBtn.addEventListener('click', loadFinancialData);
+
+		// Save button.
+		const saveBtn = document.getElementById('save-financial');
+		if (saveBtn) saveBtn.addEventListener('click', saveFinancialSummary);
+	});
 </script>
 <script src="<?php echo esc_url( BYMOREISH_PLUGIN_URL ); ?>assets/js/main.js"></script>
 </body>

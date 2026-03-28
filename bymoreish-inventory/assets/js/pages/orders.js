@@ -50,7 +50,7 @@ const OrdersPage = (() => {
     try {
       BymoreishApp.showLoading();
       const branchId = _getBranchId();
-      _products = await BymoreishApp.bymAjax('bym_get_products', { branch_id: branchId });
+      _products = await BymoreishApp.bymAjax('bym_get_products', { branch_id: branchId, exclude_stock_items: 1 });
       _renderProductList(_products, container);
     } catch (err) {
       BymoreishApp.showToast(err.message || 'Failed to load products.', 'error');
