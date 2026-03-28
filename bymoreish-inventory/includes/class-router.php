@@ -78,21 +78,30 @@ class Bymoreish_Router {
 
 		$auth = Bymoreish_Auth::get_instance();
 
-		// Handle logout action on the login page (requires a valid session nonce).
+		// Handle logout action on the login page.
 		if ( $page === 'bymoreish/login' ) {
 			$action = sanitize_text_field( wp_unslash( $_GET['action'] ?? '' ) );
 			if ( $action === 'logout' ) {
+				// Session must be started before we can read the stored nonce.
+				if ( session_status() !== PHP_SESSION_ACTIVE ) {
+					session_start();
+				}
+
 				$submitted_nonce = sanitize_text_field( wp_unslash( $_GET['_bym_nonce'] ?? '' ) );
 				$stored_nonce    = (string) ( $_SESSION['bym_nonce'] ?? '' );
 
-				// Only perform logout when a valid session nonce is present.
+				// Perform logout when a valid session nonce is present.
 				if ( ! empty( $stored_nonce ) && hash_equals( $stored_nonce, $submitted_nonce ) ) {
 					$auth->logout();
 					wp_redirect( home_url( '/bymoreish/login' ) );
 					exit;
 				}
 
-				// Invalid nonce on logout: silently redirect to login without logging out.
+				// Fallback: if the user has an active session, log them out
+				// regardless of nonce (handles edge cases like expired nonces).
+				if ( $auth->is_authenticated() ) {
+					$auth->logout();
+				}
 				wp_redirect( home_url( '/bymoreish/login' ) );
 				exit;
 			}

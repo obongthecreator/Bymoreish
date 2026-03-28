@@ -19,11 +19,27 @@ $current_user = bymoreish_current_user();
 $user_role    = $current_user['role'];
 $full_name    = $current_user['full_name'];
 $user_id      = $current_user['id'];
-$branch_id    = $current_user['branch'];
+$branch_slug  = $current_user['branch'];
 $plugin_url   = BYMOREISH_PLUGIN_URL;
 $ajax_url     = admin_url( 'admin-ajax.php' );
 $nonce        = $bymoreish_nonce ?? '';
 $logout_url   = home_url( '/bymoreish/login?action=logout&_bym_nonce=' . rawurlencode( (string) ( $_SESSION['bym_nonce'] ?? '' ) ) );
+
+// Resolve the branch slug to a numeric ID for the order form.
+$branch_id = 0;
+if ( ! empty( $branch_slug ) && $branch_slug !== 'all' ) {
+	global $wpdb;
+	$branch_id = (int) $wpdb->get_var( $wpdb->prepare(
+		"SELECT id FROM bym_branches WHERE slug = %s LIMIT 1",
+		$branch_slug
+	) );
+}
+if ( $branch_id <= 0 ) {
+	global $wpdb;
+	$branch_id = (int) $wpdb->get_var(
+		"SELECT id FROM bym_branches WHERE status = 'active' ORDER BY id ASC LIMIT 1"
+	);
+}
 
 $is_admin = in_array( $user_role, [ 'admin', 'superadmin' ], true );
 
