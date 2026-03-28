@@ -193,8 +193,9 @@ class Bymoreish_Ajax {
 	private function resolve_branch_id( ?int $requested_branch_id ): int {
 		$user = $this->current_user();
 
-		if ( $user['role'] === 'superadmin' ) {
-			return (int) ( $requested_branch_id ?? 0 );
+		// If a valid numeric branch ID was explicitly provided, use it.
+		if ( $requested_branch_id && $requested_branch_id > 0 ) {
+			return $requested_branch_id;
 		}
 
 		// For staff/admin, look up their branch by slug.
@@ -211,6 +212,14 @@ class Bymoreish_Ajax {
 			if ( $row ) {
 				return (int) $row['id'];
 			}
+		}
+
+		// Fallback: use the first active branch (covers superadmin with branch='all').
+		global $wpdb;
+		$branch_table = 'bym_branches';
+		$first = $wpdb->get_var( "SELECT id FROM {$branch_table} WHERE status = 'active' ORDER BY id ASC LIMIT 1" );
+		if ( $first ) {
+			return (int) $first;
 		}
 
 		return (int) ( $requested_branch_id ?? 0 );

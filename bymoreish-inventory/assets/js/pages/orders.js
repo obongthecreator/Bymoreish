@@ -133,8 +133,8 @@ const OrdersPage = (() => {
           <div class="text-sm font-semibold text-white leading-tight">
             ${BymoreishApp.escapeHtml(product.name)}
           </div>
-          <div class="text-xs text-gray-500 mt-0.5">
-            ${BymoreishApp.formatNaira(product.price)} / ${BymoreishApp.escapeHtml(product.unit || 'unit')}
+          <div class="text-sm font-bold text-yellow-400 mt-0.5">
+            ${BymoreishApp.formatNaira(product.price)} <span class="text-xs font-normal text-gray-500">/ ${BymoreishApp.escapeHtml(product.unit || 'unit')}</span>
           </div>
           ${extrasHtml}
         </div>
