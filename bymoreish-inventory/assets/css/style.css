@@ -650,6 +650,8 @@ body       { font-size: 0.875rem; }  /* 14px */
   opacity: 0.15;
   pointer-events: none;
   user-select: none;
+  /* Promote to composited layer to avoid layout thrashing on lower-end devices */
+  will-change: transform;
 }
 
 /* --------------------------------------------------------------------------

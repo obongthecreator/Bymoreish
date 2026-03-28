@@ -440,6 +440,8 @@ async function _tryBluetoothPrint(_receiptHtml) {
   if (!navigator.bluetooth) return;
   try {
     // Attempt discovery – user must grant permission; any rejection is silently ignored.
+    // UUID 000018f0-0000-1000-8000-00805f9b34fb is the "Simple Keys" / generic serial
+    // profile used by many low-cost Bluetooth thermal receipt printers (e.g. HPRT, Rongta).
     const device = await navigator.bluetooth.requestDevice({
       filters:          [{ services: ['000018f0-0000-1000-8000-00805f9b34fb'] }],
       optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb'],
