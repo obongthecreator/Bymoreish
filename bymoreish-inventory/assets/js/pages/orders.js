@@ -421,7 +421,7 @@ const OrdersPage = (() => {
       customer_phone:   customerPhone,
       customer_type:    customerType,
       customer_remarks: customerRemarks,
-      status:           'pending',
+      status:           'prepared',
     };
 
     try {

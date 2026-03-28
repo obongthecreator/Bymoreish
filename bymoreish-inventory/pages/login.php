@@ -10,12 +10,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-// Logout action
-if ( isset( $_GET['action'] ) && $_GET['action'] === 'logout' ) {
-	bymoreish_logout_user();
-	wp_redirect( home_url( '/bymoreish/' ) );
-	exit;
-}
+// Note: logout is handled by the router (class-router.php) before this
+// file is ever included, so there is no logout block here.
 
 // Already authenticated → send home
 if ( bymoreish_is_authenticated() ) {

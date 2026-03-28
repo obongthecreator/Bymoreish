@@ -473,9 +473,9 @@ class Bymoreish_Ajax {
 			(float) ( $_POST['transfer_amount'] ?? 0 )
 		);
 
-		$status = sanitize_text_field( wp_unslash( $_POST['status'] ?? 'pending' ) );
+		$status = sanitize_text_field( wp_unslash( $_POST['status'] ?? 'prepared' ) );
 		if ( ! in_array( $status, [ 'pending', 'prepared', 'delivered' ], true ) ) {
-			$status = 'pending';
+			$status = 'prepared';
 		}
 
 		$db           = Bymoreish_Database::get_instance();
