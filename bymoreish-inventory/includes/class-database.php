@@ -319,12 +319,13 @@ class Bymoreish_Database {
 	// -----------------------------------------------------------------------
 
 	/**
-	 * Inserts default branches and the superadmin user.
+	 * Inserts default branches, superadmin user, and menu products.
 	 * Uses INSERT IGNORE so it is safe to call multiple times.
 	 */
 	public function insert_default_data() {
 		$this->insert_default_branches();
 		$this->insert_default_superadmin();
+		$this->insert_default_products();
 	}
 
 	private function insert_default_branches() {
@@ -390,6 +391,138 @@ class Bymoreish_Database {
 			],
 			[ '%s', '%s', '%s', '%s', '%s', '%s', '%d' ]
 		);
+	}
+
+	/**
+	 * Inserts default menu products and their add-on extras.
+	 * Uses INSERT IGNORE so it is safe to call multiple times.
+	 */
+	private function insert_default_products() {
+		$products_table = $this->table( self::TABLE_PRODUCTS );
+		$extras_table   = $this->table( self::TABLE_PRODUCT_EXTRAS );
+
+		// Check if products already exist to avoid duplicates.
+		$existing = $this->wpdb->get_var( "SELECT COUNT(*) FROM {$products_table}" );
+		if ( (int) $existing > 0 ) {
+			return;
+		}
+
+		// Look up the "Behind Marlima" branch ID for default products.
+		$branches_table = $this->table( self::TABLE_BRANCHES );
+		$branch_id      = (int) $this->wpdb->get_var(
+			$this->wpdb->prepare(
+				"SELECT id FROM {$branches_table} WHERE slug = %s LIMIT 1",
+				'behind-marlima'
+			)
+		);
+
+		// Menu items from the Bymoreish menu.
+		$products = [
+			// Friendly Toast
+			[
+				'name'        => 'Friendly Toast – One Third',
+				'category'    => 'Friendly Toast',
+				'price'       => '1000.00',
+				'unit'        => 'portion',
+				'description' => 'One egg, sauce n cream spread',
+			],
+			[
+				'name'        => 'Friendly Toast – Half Loaf',
+				'category'    => 'Friendly Toast',
+				'price'       => '1300.00',
+				'unit'        => 'portion',
+				'description' => 'One egg, sauce n cream spread',
+			],
+			// BBQ Toast
+			[
+				'name'        => 'BBQ Toast – One Third',
+				'category'    => 'BBQ Toast',
+				'price'       => '1800.00',
+				'unit'        => 'portion',
+				'description' => 'One egg, sauce, chicken, sausage n cream spread',
+			],
+			[
+				'name'        => 'BBQ Toast – Half Loaf',
+				'category'    => 'BBQ Toast',
+				'price'       => '2500.00',
+				'unit'        => 'portion',
+				'description' => 'One egg, sauce, chicken, sausage n cream spread',
+			],
+			// Brewama
+			[
+				'name'        => 'Brewama – Single Mix',
+				'category'    => 'Brewama',
+				'price'       => '3500.00',
+				'unit'        => 'portion',
+				'description' => '½ bread, 2 eggs, moreish bite (chicken & sausages) toppings n cream spread',
+			],
+			[
+				'name'        => 'Brewama – Double Mix',
+				'category'    => 'Brewama',
+				'price'       => '5000.00',
+				'unit'        => 'portion',
+				'description' => '½ bread, 2 eggs, moreish bite (chicken & sausages) toppings n cream spread',
+			],
+			// BBQ Mega
+			[
+				'name'        => 'BBQ Mega – Single Mix',
+				'category'    => 'BBQ Mega',
+				'price'       => '4500.00',
+				'unit'        => 'portion',
+				'description' => '½ bread, 2 eggs, moreish bite (chicken & sausages) sprinkles, cheese sauce n cream spread n veggies if required',
+			],
+			[
+				'name'        => 'BBQ Mega – Double Mix',
+				'category'    => 'BBQ Mega',
+				'price'       => '6500.00',
+				'unit'        => 'portion',
+				'description' => '½ bread, 2 eggs, moreish bite (chicken & sausages) sprinkles, cheese sauce n cream spread n veggies if required',
+			],
+		];
+
+		// Extras (Add-ons) – applied to all products.
+		$extras = [
+			[ 'extra_name' => 'Egg',            'extra_price' => '350.00' ],
+			[ 'extra_name' => 'Chicken',         'extra_price' => '500.00' ],
+			[ 'extra_name' => 'Sausages',        'extra_price' => '400.00' ],
+			[ 'extra_name' => 'Ketchup',         'extra_price' => '200.00' ],
+			[ 'extra_name' => 'Veggies',         'extra_price' => '0.00'   ],
+			[ 'extra_name' => 'Friendly Cream',  'extra_price' => '300.00' ],
+			[ 'extra_name' => 'BBQ Cream',       'extra_price' => '500.00' ],
+			[ 'extra_name' => 'Brewama Cream',   'extra_price' => '500.00' ],
+			[ 'extra_name' => 'Moreish Mix',     'extra_price' => '700.00' ],
+			[ 'extra_name' => 'Stew',            'extra_price' => '500.00' ],
+		];
+
+		foreach ( $products as $product ) {
+			$this->wpdb->insert(
+				$products_table,
+				[
+					'name'        => $product['name'],
+					'category'    => $product['category'],
+					'price'       => $product['price'],
+					'unit'        => $product['unit'],
+					'description' => $product['description'],
+					'is_active'   => 1,
+					'branch_id'   => $branch_id > 0 ? $branch_id : null,
+				]
+			);
+			$product_id = (int) $this->wpdb->insert_id;
+
+			if ( $product_id > 0 ) {
+				foreach ( $extras as $extra ) {
+					$this->wpdb->insert(
+						$extras_table,
+						[
+							'product_id'  => $product_id,
+							'extra_name'  => $extra['extra_name'],
+							'extra_price' => $extra['extra_price'],
+							'is_active'   => 1,
+						]
+					);
+				}
+			}
+		}
 	}
 
 	// -----------------------------------------------------------------------

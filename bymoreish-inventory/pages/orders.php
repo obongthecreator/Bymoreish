@@ -87,6 +87,13 @@ $nav_items[] = [ 'href' => '/bymoreish/profile', 'icon' => 'solar:user-circle-li
 		.nav-item.active { background: rgba(238,206,85,0.12) !important; color: #EECE55 !important; }
 		.nav-item.active iconify-icon { color: #EECE55 !important; }
 
+		/* ── Payment tab active ── */
+		.payment-tab.active {
+			background: rgba(238,206,85,0.15) !important;
+			border-color: rgba(238,206,85,0.4) !important;
+			color: #EECE55 !important;
+		}
+
 		/* ── Glassmorphism ── */
 		.glass {
 			background: rgba(255,255,255,0.06);
@@ -389,6 +396,9 @@ $nav_items[] = [ 'href' => '/bymoreish/profile', 'icon' => 'solar:user-circle-li
 		<!-- ──────────────────────────────────────────────────────────
 		     NEW ORDER FORM
 		     ────────────────────────────────────────────────────────── -->
+		<!-- Hidden branch ID for JS -->
+		<input type="hidden" id="bym-branch-id" value="<?php echo (int) $branch_id; ?>">
+
 		<section class="fade-up delay-1">
 			<div class="glass rounded-2xl overflow-hidden">
 
@@ -408,39 +418,18 @@ $nav_items[] = [ 'href' => '/bymoreish/profile', 'icon' => 'solar:user-circle-li
 					</div>
 				</div>
 
-				<!-- Order items table -->
-				<div class="overflow-x-auto">
-					<table class="order-table w-full text-sm text-white" id="order-items-table">
-						<thead>
-							<tr>
-								<th class="w-10">#</th>
-								<th>Item</th>
-								<th class="w-36">Price (₦)</th>
-								<th class="w-28">Qty</th>
-								<th class="w-40">Extras</th>
-								<th class="w-36">Total (₦)</th>
-							</tr>
-						</thead>
-						<tbody id="order-items-body">
-							<!-- Rows injected by orders.js after AJAX menu load -->
-							<tr id="order-empty-row">
-								<td colspan="6" class="text-center py-8 text-gray-500 text-xs">
-									<iconify-icon icon="solar:refresh-linear" class="animate-spin text-lg block mx-auto mb-2"></iconify-icon>
-									Loading menu items…
-								</td>
-							</tr>
-						</tbody>
-						<tfoot>
-							<tr>
-								<td colspan="5" class="px-4 py-3 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">
-									Order Subtotal
-								</td>
-								<td class="px-3 py-3">
-									<span id="order-subtotal" class="text-base font-extrabold text-white tabular-nums">₦0</span>
-								</td>
-							</tr>
-						</tfoot>
-					</table>
+				<!-- Order product list (populated by orders.js) -->
+				<div id="orders-product-list" class="p-4 space-y-1">
+					<div class="text-center py-8 text-gray-500 text-xs">
+						<iconify-icon icon="solar:refresh-linear" class="animate-spin text-lg block mx-auto mb-2"></iconify-icon>
+						Loading menu items…
+					</div>
+				</div>
+
+				<!-- Order subtotal -->
+				<div class="flex items-center justify-end px-6 py-3" style="border-top:1px solid rgba(255,255,255,0.07);">
+					<span class="text-xs font-semibold text-gray-400 uppercase tracking-wider mr-4">Order Subtotal</span>
+					<span id="orders-grand-total" class="text-base font-extrabold text-white tabular-nums">₦0</span>
 				</div>
 			</div>
 		</section>
@@ -533,70 +522,91 @@ $nav_items[] = [ 'href' => '/bymoreish/profile', 'icon' => 'solar:user-circle-li
 						<h2 class="text-sm font-bold text-white">Payment Mode</h2>
 					</div>
 
-					<!-- Checkboxes -->
-					<div class="flex flex-wrap gap-3">
-						<label class="flex items-center gap-2.5 px-4 py-2.5 rounded-xl cursor-pointer select-none transition-all"
-						       style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);"
-						       id="label-transfer">
-							<input type="checkbox" class="pay-checkbox w-4 h-4" id="pay-transfer" value="transfer">
+					<!-- Payment tabs -->
+					<div class="flex flex-wrap gap-2">
+						<button type="button" class="payment-tab flex items-center gap-2.5 px-4 py-2.5 rounded-xl select-none transition-all text-sm font-medium text-gray-300"
+						        data-mode="transfer"
+						        style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
 							<iconify-icon icon="solar:transfer-horizontal-linear" style="font-size:1rem;color:#EECE55;"></iconify-icon>
-							<span class="text-sm font-medium text-gray-300">Transfer</span>
-						</label>
-						<label class="flex items-center gap-2.5 px-4 py-2.5 rounded-xl cursor-pointer select-none transition-all"
-						       style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);"
-						       id="label-card">
-							<input type="checkbox" class="pay-checkbox w-4 h-4" id="pay-card" value="card">
+							Transfer
+						</button>
+						<button type="button" class="payment-tab flex items-center gap-2.5 px-4 py-2.5 rounded-xl select-none transition-all text-sm font-medium text-gray-300"
+						        data-mode="card"
+						        style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
 							<iconify-icon icon="solar:card-2-linear" style="font-size:1rem;color:#EECE55;"></iconify-icon>
-							<span class="text-sm font-medium text-gray-300">Card (POS)</span>
-						</label>
-						<label class="flex items-center gap-2.5 px-4 py-2.5 rounded-xl cursor-pointer select-none transition-all"
-						       style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);"
-						       id="label-cash">
-							<input type="checkbox" class="pay-checkbox w-4 h-4" id="pay-cash" value="cash">
+							Card (POS)
+						</button>
+						<button type="button" class="payment-tab active flex items-center gap-2.5 px-4 py-2.5 rounded-xl select-none transition-all text-sm font-medium text-gray-300"
+						        data-mode="cash"
+						        style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
 							<iconify-icon icon="solar:banknote-linear" style="font-size:1rem;color:#4CB050;"></iconify-icon>
-							<span class="text-sm font-medium text-gray-300">Cash</span>
-						</label>
+							Cash
+						</button>
+						<button type="button" class="payment-tab flex items-center gap-2.5 px-4 py-2.5 rounded-xl select-none transition-all text-sm font-medium text-gray-300"
+						        data-mode="transfer_card"
+						        style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
+							<iconify-icon icon="solar:wallet-money-linear" style="font-size:1rem;color:#EECE55;"></iconify-icon>
+							Transfer + Card
+						</button>
+						<button type="button" class="payment-tab flex items-center gap-2.5 px-4 py-2.5 rounded-xl select-none transition-all text-sm font-medium text-gray-300"
+						        data-mode="transfer_cash"
+						        style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
+							<iconify-icon icon="solar:wallet-money-linear" style="font-size:1rem;color:#EECE55;"></iconify-icon>
+							Transfer + Cash
+						</button>
+						<button type="button" class="payment-tab flex items-center gap-2.5 px-4 py-2.5 rounded-xl select-none transition-all text-sm font-medium text-gray-300"
+						        data-mode="card_cash"
+						        style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
+							<iconify-icon icon="solar:wallet-money-linear" style="font-size:1rem;color:#EECE55;"></iconify-icon>
+							Card + Cash
+						</button>
+						<button type="button" class="payment-tab flex items-center gap-2.5 px-4 py-2.5 rounded-xl select-none transition-all text-sm font-medium text-gray-300"
+						        data-mode="all"
+						        style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
+							<iconify-icon icon="solar:wallet-money-linear" style="font-size:1rem;color:#EECE55;"></iconify-icon>
+							All Methods
+						</button>
 					</div>
 
 					<!-- Amount inputs -->
 					<div class="space-y-3" id="payment-inputs">
-						<div class="flex items-center gap-3" id="field-transfer">
+						<div class="flex items-center gap-3" id="payment-field-transfer" class="hidden">
 							<iconify-icon icon="solar:transfer-horizontal-linear" class="text-gray-500 shrink-0" style="font-size:1.1rem;"></iconify-icon>
 							<div class="flex-1 space-y-1">
 								<p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Transfer Amount</p>
 								<div class="relative">
 									<span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold pointer-events-none">₦</span>
-									<input id="amt-transfer" type="number" min="0" step="0.01" placeholder="0.00"
-									       class="bym-input pl-7 tabular-nums" readonly>
+									<input id="payment-transfer" type="text" placeholder="0.00"
+									       class="bym-input pl-7 tabular-nums currency-input" readonly>
 								</div>
 							</div>
 						</div>
-						<div class="flex items-center gap-3" id="field-card">
+						<div class="flex items-center gap-3" id="payment-field-card" class="hidden">
 							<iconify-icon icon="solar:card-2-linear" class="text-gray-500 shrink-0" style="font-size:1.1rem;"></iconify-icon>
 							<div class="flex-1 space-y-1">
 								<p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Card Amount</p>
 								<div class="relative">
 									<span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold pointer-events-none">₦</span>
-									<input id="amt-card" type="number" min="0" step="0.01" placeholder="0.00"
-									       class="bym-input pl-7 tabular-nums" readonly>
+									<input id="payment-card" type="text" placeholder="0.00"
+									       class="bym-input pl-7 tabular-nums currency-input" readonly>
 								</div>
 							</div>
 						</div>
-						<div class="flex items-center gap-3" id="field-cash">
+						<div class="flex items-center gap-3" id="payment-field-cash">
 							<iconify-icon icon="solar:banknote-linear" class="text-gray-500 shrink-0" style="font-size:1.1rem;"></iconify-icon>
 							<div class="flex-1 space-y-1">
 								<p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Cash Amount</p>
 								<div class="relative">
 									<span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold pointer-events-none">₦</span>
-									<input id="amt-cash" type="number" min="0" step="0.01" placeholder="0.00"
-									       class="bym-input pl-7 tabular-nums" readonly>
+									<input id="payment-cash" type="text" placeholder="0.00"
+									       class="bym-input pl-7 tabular-nums currency-input" readonly>
 								</div>
 							</div>
 						</div>
 					</div>
 
 					<!-- Payment note -->
-					<p id="payment-hint" class="text-xs text-gray-500 italic">Select one or more payment methods above.</p>
+					<p id="payment-hint" class="text-xs text-gray-500 italic">Select a payment method above.</p>
 				</div>
 
 				<!-- Grand Total + Submit -->
@@ -613,7 +623,7 @@ $nav_items[] = [ 'href' => '/bymoreish/profile', 'icon' => 'solar:user-circle-li
 						<div class="rounded-xl p-5 text-center"
 						     style="background:rgba(238,206,85,0.06);border:1px solid rgba(238,206,85,0.15);">
 							<p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Amount Due</p>
-							<p id="grand-total" class="text-4xl font-extrabold tabular-nums" style="color:#EECE55;">₦0</p>
+							<p id="grand-total-display" class="text-4xl font-extrabold tabular-nums" style="color:#EECE55;">₦0</p>
 						</div>
 
 						<!-- Payment confirmed -->
@@ -628,7 +638,7 @@ $nav_items[] = [ 'href' => '/bymoreish/profile', 'icon' => 'solar:user-circle-li
 					</div>
 
 					<!-- Submit button -->
-					<button id="submit-order" type="button" disabled
+					<button id="btn-submit-order" type="button" disabled
 					        class="w-full flex items-center justify-center gap-2 py-3.5 rounded-full text-sm font-bold transition-all duration-300 opacity-50 cursor-not-allowed"
 					        style="background:linear-gradient(135deg,#EECE55,#d4b043);color:#0a0a0f;">
 						<iconify-icon icon="solar:check-circle-linear" style="font-size:1.2rem;"></iconify-icon>
@@ -671,7 +681,7 @@ $nav_items[] = [ 'href' => '/bymoreish/profile', 'icon' => 'solar:user-circle-li
 								<th>Actions</th>
 							</tr>
 						</thead>
-						<tbody id="recent-orders-body">
+						<tbody id="orders-table-body">
 							<tr>
 								<td colspan="7" class="text-center py-8 text-gray-500 text-xs">
 									<iconify-icon icon="solar:refresh-linear" class="animate-spin text-lg block mx-auto mb-2"></iconify-icon>
@@ -686,6 +696,33 @@ $nav_items[] = [ 'href' => '/bymoreish/profile', 'icon' => 'solar:user-circle-li
 
 	</div><!-- /.page body -->
 </div><!-- /#main-content -->
+
+<!-- ================================================================
+     RECEIPT PROMPT MODAL (after order saved)
+     ================================================================ -->
+<div id="receipt-prompt-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4"
+     style="background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);">
+	<div class="glass rounded-2xl p-6 max-w-sm w-full text-center">
+		<div class="w-14 h-14 rounded-xl mx-auto mb-4 flex items-center justify-center"
+		     style="background:rgba(76,176,80,0.12);border:1px solid rgba(76,176,80,0.25);">
+			<iconify-icon icon="solar:check-circle-linear" style="font-size:2rem;color:#4CB050;"></iconify-icon>
+		</div>
+		<h3 class="text-xl font-bold text-white mb-2">Order Saved!</h3>
+		<p class="text-gray-400 text-sm mb-6">Would you like to print a receipt?</p>
+		<div class="flex gap-3">
+			<button id="btn-skip-receipt" type="button"
+			        class="flex-1 py-2.5 rounded-full text-sm font-semibold transition-all"
+			        style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:#94a3b8;">
+				Skip
+			</button>
+			<button id="btn-print-receipt" type="button"
+			        class="flex-1 py-2.5 rounded-full text-sm font-semibold transition-all"
+			        style="background:linear-gradient(135deg,#EECE55,#d4b043);color:#0a0a0f;">
+				Print Receipt
+			</button>
+		</div>
+	</div>
+</div>
 
 <!-- ================================================================
      RECEIPT MODAL
@@ -816,13 +853,23 @@ $nav_items[] = [ 'href' => '/bymoreish/profile', 'icon' => 'solar:user-circle-li
 	/* ── Payment confirmed enables submit ── */
 	(function () {
 		const cb  = document.getElementById('payment-confirmed');
-		const btn = document.getElementById('submit-order');
+		const btn = document.getElementById('btn-submit-order');
 		if (cb && btn) {
 			cb.addEventListener('change', () => {
 				btn.disabled = !cb.checked;
 				btn.classList.toggle('opacity-50', !cb.checked);
 				btn.classList.toggle('cursor-not-allowed', !cb.checked);
 				btn.classList.toggle('hover:scale-105', cb.checked);
+			});
+		}
+	})();
+
+	/* ── Refresh orders button ── */
+	(function () {
+		const refreshBtn = document.getElementById('refresh-orders');
+		if (refreshBtn) {
+			refreshBtn.addEventListener('click', () => {
+				if (window.OrdersPage) OrdersPage.init();
 			});
 		}
 	})();

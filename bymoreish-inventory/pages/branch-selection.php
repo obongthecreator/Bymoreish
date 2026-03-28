@@ -61,6 +61,16 @@ $plugin_url = BYMOREISH_PLUGIN_URL;
 	<link rel="stylesheet" href="<?php echo esc_url( $plugin_url ); ?>assets/css/style.css">
 
 	<style>
+		/* ---------- fadeUp animation (inline fallback for reliability) ---------- */
+		@keyframes fadeUp {
+			0%   { opacity: 0; transform: translateY(24px); }
+			100% { opacity: 1; transform: translateY(0); }
+		}
+		@keyframes floatSlow {
+			0%, 100% { transform: translateY(0px) rotate(0deg); }
+			50%      { transform: translateY(-20px) rotate(8deg); }
+		}
+
 		/* ---------- Letter animation ---------- */
 		.text-animate .letter {
 			display: inline-block;

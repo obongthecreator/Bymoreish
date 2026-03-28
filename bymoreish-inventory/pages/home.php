@@ -20,7 +20,7 @@ $user_role    = $current_user['role'];
 $full_name    = $current_user['full_name'];
 $plugin_url   = BYMOREISH_PLUGIN_URL;
 $ajax_url     = admin_url( 'admin-ajax.php' );
-$logout_url   = home_url( '/bymoreish/login?action=logout' );
+$logout_url   = home_url( '/bymoreish/login?action=logout&_bym_nonce=' . rawurlencode( (string) ( $_SESSION['bym_nonce'] ?? '' ) ) );
 
 $is_admin = in_array( $user_role, [ 'admin', 'superadmin' ], true );
 

@@ -255,6 +255,10 @@ const OrdersPage = (() => {
     const el = document.getElementById('orders-grand-total');
     if (el) el.textContent = BymoreishApp.formatNaira(total);
 
+    // Also update the separate grand total display in the payment section.
+    const gtDisplay = document.getElementById('grand-total-display');
+    if (gtDisplay) gtDisplay.textContent = BymoreishApp.formatNaira(total);
+
     _updatePaymentFields(total);
   }
 
@@ -400,14 +404,24 @@ const OrdersPage = (() => {
     const cardInput = document.getElementById('payment-card');
     const cashInput = document.getElementById('payment-cash');
 
+    // Gather customer details from the form.
+    const customerName    = (document.getElementById('customer-name')    || {}).value || '';
+    const customerPhone   = (document.getElementById('customer-phone')   || {}).value || '';
+    const customerType    = (document.getElementById('customer-type')    || {}).value || 'new';
+    const customerRemarks = (document.getElementById('customer-remarks') || {}).value || '';
+
     const payload = {
-      branch_id:       _getBranchId(),
-      items:           items,
-      payment_mode:    _paymentMode,
-      transfer_amount: BymoreishApp.parseNaira(xferInput?.dataset.rawValue || xferInput?.value || '0'),
-      card_amount:     BymoreishApp.parseNaira(cardInput?.dataset.rawValue || cardInput?.value || '0'),
-      cash_amount:     BymoreishApp.parseNaira(cashInput?.dataset.rawValue || cashInput?.value || '0'),
-      status:          'pending',
+      branch_id:        _getBranchId(),
+      items:            items,
+      payment_mode:     _paymentMode,
+      transfer_amount:  BymoreishApp.parseNaira(xferInput?.dataset.rawValue || xferInput?.value || '0'),
+      card_amount:      BymoreishApp.parseNaira(cardInput?.dataset.rawValue || cardInput?.value || '0'),
+      cash_amount:      BymoreishApp.parseNaira(cashInput?.dataset.rawValue || cashInput?.value || '0'),
+      customer_name:    customerName,
+      customer_phone:   customerPhone,
+      customer_type:    customerType,
+      customer_remarks: customerRemarks,
+      status:           'pending',
     };
 
     try {
@@ -429,7 +443,7 @@ const OrdersPage = (() => {
   function _resetOrder() {
     _cart.clear();
     _products.forEach((p) => {
-      _updateQtyDisplay(p.id, 0);
+      _updateQtyDisplay(parseInt(p.id, 10), 0);
       const el = document.getElementById(`item-total-${p.id}`);
       if (el) el.textContent = '—';
     });
@@ -445,6 +459,24 @@ const OrdersPage = (() => {
       const el = document.getElementById(id);
       if (el) { el.value = ''; el.dataset.rawValue = '0'; }
     });
+
+    // Reset customer form fields.
+    ['customer-name', 'customer-phone', 'customer-remarks'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    const customerType = document.getElementById('customer-type');
+    if (customerType) customerType.value = 'new';
+
+    // Uncheck payment confirmed and disable submit.
+    const pcb = document.getElementById('payment-confirmed');
+    if (pcb) pcb.checked = false;
+    const submitBtn = document.getElementById('btn-submit-order');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      submitBtn.classList.remove('hover:scale-105');
+    }
   }
 
   function _showReceiptPrompt(orderId) {
@@ -495,20 +527,20 @@ const OrdersPage = (() => {
       tbody.innerHTML = orders.map((order) => `
         <tr>
           <td class="px-4 py-3 font-semibold text-white">#${order.id}</td>
-          <td class="px-4 py-3 text-sm text-gray-400">${order.order_time || ''}</td>
+          <td class="px-4 py-3 text-sm text-gray-400">${BymoreishApp.escapeHtml(order.customer_name || 'Walk-in')}</td>
           <td class="px-4 py-3 text-sm text-gray-300">${_summariseItems(order.items)}</td>
           <td class="px-4 py-3 font-semibold text-yellow-400 tabular-nums">
             ${BymoreishApp.formatNaira(order.grand_total)}
           </td>
-          <td class="px-4 py-3 text-xs text-gray-400 capitalize">${order.payment_mode || ''}</td>
+          <td class="px-4 py-3 text-xs text-gray-400 capitalize">${BymoreishApp.escapeHtml(order.payment_mode || '')}</td>
           <td class="px-4 py-3">
-            <span class="status-badge status-${order.status}">${order.status}</span>
+            <span class="status-badge status-${BymoreishApp.escapeHtml(order.status)}">${BymoreishApp.escapeHtml(order.status)}</span>
           </td>
           <td class="px-4 py-3">
             <div class="flex items-center gap-2">
               ${_statusActionBtn(order)}
               <button type="button" class="pill-btn py-1 px-3 text-xs btn-text"
-                      onclick="OrdersPage.printReceipt(${order.id})">
+                      onclick="OrdersPage.printReceipt(${parseInt(order.id, 10)})">
                 <span class="iconify" data-icon="solar:printer-bold"></span>
               </button>
             </div>
@@ -532,10 +564,11 @@ const OrdersPage = (() => {
     const next = { pending: 'prepared', prepared: 'delivered' };
     const nextStatus = next[order.status];
     if (!nextStatus) return '';
+    const orderId = parseInt(order.id, 10);
     return `
       <button type="button"
               class="pill-btn pill-btn-green py-1 px-3 text-xs btn-text"
-              onclick="OrdersPage.updateStatus(${order.id}, '${nextStatus}')">
+              onclick="OrdersPage.updateStatus(${orderId}, '${nextStatus}')">
         Mark ${nextStatus}
       </button>`;
   }
