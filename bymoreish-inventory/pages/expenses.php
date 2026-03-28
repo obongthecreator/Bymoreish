@@ -786,12 +786,43 @@ async function loadTodayExpenses() {
 			body: body.toString(),
 		});
 		const data = await res.json();
-		if (!data || !data.success || !Array.isArray(data.data)) {
+		if (!data || !data.success || !data.data) {
 			tbody.innerHTML = '<tr><td colspan="' + cols + '" class="text-center py-8 text-gray-500 text-xs">No expenses found for today.</td></tr>';
 			return;
 		}
 
-		const expenses = data.data;
+		// Handle both structured and flat response.
+		var raw = data.data;
+		var expenseGroups = Array.isArray(raw) ? raw : (raw.expenses || []);
+		// Flatten expense groups into individual items for display.
+		var expenses = [];
+		expenseGroups.forEach(function(group) {
+			if (group.items && group.items.length) {
+				group.items.forEach(function(item) {
+					expenses.push({
+						id:           group.id,
+						description:  item.description || '',
+						price:        item.price || 0,
+						quantity:     item.quantity || 0,
+						total:        item.total || 0,
+						submitted_by: group.staff_name || '',
+						time:         group.created_at || '',
+						created_at:   group.created_at || '',
+					});
+				});
+			} else {
+				expenses.push({
+					id:           group.id,
+					description:  group.remarks || 'Expense',
+					price:        group.grand_total || 0,
+					quantity:     1,
+					total:        group.grand_total || 0,
+					submitted_by: group.staff_name || '',
+					time:         group.created_at || '',
+					created_at:   group.created_at || '',
+				});
+			}
+		});
 		let todayTotal = 0;
 		let html       = '';
 

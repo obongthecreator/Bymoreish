@@ -521,7 +521,11 @@ $feature_cards[] = [
    ============================================================ */
 window.bymConfig = {
 	ajaxUrl:     <?php echo wp_json_encode( $ajax_url ); ?>,
-	nonce:       '',
+	nonce:       '<?php echo esc_js( $bymoreish_nonce ?? '' ); ?>',
+	userId:      <?php echo (int) $current_user['id']; ?>,
+	userRole:    <?php echo wp_json_encode( $user_role ); ?>,
+	branchId:    <?php echo (int) ( $current_user['branch_id'] ?? 1 ); ?>,
+	pluginUrl:   <?php echo wp_json_encode( $plugin_url ); ?>,
 	currentUser: {
 		id:       <?php echo (int) $current_user['id']; ?>,
 		username: <?php echo wp_json_encode( $current_user['username'] ); ?>,

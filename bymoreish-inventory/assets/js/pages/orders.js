@@ -474,12 +474,15 @@ const OrdersPage = (() => {
     if (!tbody) return;
 
     try {
-      const orders = await BymoreishApp.bymAjax('bym_get_orders', {
+      const response = await BymoreishApp.bymAjax('bym_get_orders', {
         branch_id: _getBranchId(),
         date_from: BymoreishApp.todayISO(),
         date_to:   BymoreishApp.todayISO(),
         status,
       });
+
+      // Handle both flat array and structured response.
+      const orders = Array.isArray(response) ? response : (response.orders || []);
 
       if (!orders || orders.length === 0) {
         tbody.innerHTML = `

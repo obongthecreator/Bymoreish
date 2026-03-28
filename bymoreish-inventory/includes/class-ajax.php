@@ -582,10 +582,12 @@ class Bymoreish_Ajax {
 	public function handle_bym_get_orders(): void {
 		$this->check_request();
 
-		$branch_id = $this->resolve_branch_id( (int) ( $_POST['branch_id'] ?? 0 ) );
+		$branch_id = $this->resolve_branch_id( (int) ( $_POST['branch_id'] ?? $_POST['branch'] ?? 0 ) );
 		$date_from = sanitize_text_field( wp_unslash( $_POST['date_from'] ?? current_time( 'Y-m-d' ) ) );
 		$date_to   = sanitize_text_field( wp_unslash( $_POST['date_to']   ?? current_time( 'Y-m-d' ) ) );
 		$status    = sanitize_text_field( wp_unslash( $_POST['status']    ?? '' ) );
+		$page      = max( 1, (int) ( $_POST['page'] ?? 1 ) );
+		$per_page  = max( 1, (int) ( $_POST['per_page'] ?? 20 ) );
 
 		$db     = Bymoreish_Database::get_instance();
 		$orders = $db->get_orders_by_branch_and_date( $branch_id, $date_from, $date_to );
@@ -594,13 +596,46 @@ class Bymoreish_Ajax {
 			$orders = array_values( array_filter( $orders, fn( $o ) => $o['status'] === $status ) );
 		}
 
-		// Attach items to each order.
+		$total          = count( $orders );
+		$total_revenue  = 0.0;
+		$delivered_count = 0;
+		$pending_count   = 0;
+
 		foreach ( $orders as &$order ) {
-			$order['items'] = $db->get_order_items( (int) $order['id'] );
+			$order['items']      = $db->get_order_items( (int) $order['id'] );
+			$order['item_count'] = count( $order['items'] );
+			$order['total']      = $order['grand_total'];
+
+			// Staff name from session or user lookup.
+			if ( ! isset( $order['staff_name'] ) ) {
+				$staff = $db->get_row_by_id( Bymoreish_Database::TABLE_USERS, (int) ( $order['staff_id'] ?? 0 ) );
+				$order['staff_name'] = $staff['full_name'] ?? 'Unknown';
+			}
+
+			if ( $order['status'] === 'delivered' ) {
+				$total_revenue += (float) $order['grand_total'];
+				++$delivered_count;
+			} else {
+				++$pending_count;
+			}
 		}
 		unset( $order );
 
-		$this->success( $orders );
+		// Pagination.
+		$pages       = (int) ceil( $total / $per_page );
+		$offset      = ( $page - 1 ) * $per_page;
+		$paged_orders = array_slice( $orders, $offset, $per_page );
+
+		$this->success(
+			[
+				'orders'        => $paged_orders,
+				'total'         => $total,
+				'total_revenue' => $total_revenue,
+				'delivered'     => $delivered_count,
+				'pending'       => $pending_count,
+				'pages'         => $pages,
+			]
+		);
 	}
 
 	public function handle_bym_generate_receipt(): void {
@@ -620,16 +655,84 @@ class Bymoreish_Ajax {
 		$items    = $db->get_order_items( $order_id );
 		$settings = [
 			'restaurant_name' => $db->get_setting( 'restaurant_name', 'Bymoreish' ),
-			'address'         => $db->get_setting( 'address', '' ),
+			'address'         => $db->get_setting( 'address', 'Behind Marlima' ),
 			'phone'           => $db->get_setting( 'phone', '' ),
 			'receipt_footer'  => $db->get_setting( 'receipt_footer', 'Thank you for dining with us!' ),
 		];
+
+		// Staff name lookup.
+		$staff = $db->get_row_by_id( Bymoreish_Database::TABLE_USERS, (int) ( $order['staff_id'] ?? 0 ) );
+		$staff_name = $staff['full_name'] ?? 'Unknown';
+
+		// Build receipt HTML for 80mm thermal printer.
+		$html = '<div style="max-width:302px;font-family:monospace;font-size:12px;color:#000;padding:8px;">';
+		$html .= '<div style="text-align:center;font-weight:bold;font-size:14px;">' . esc_html( $settings['restaurant_name'] ) . '</div>';
+		if ( $settings['address'] ) {
+			$html .= '<div style="text-align:center;font-size:11px;">' . esc_html( $settings['address'] ) . '</div>';
+		}
+		if ( $settings['phone'] ) {
+			$html .= '<div style="text-align:center;font-size:11px;">' . esc_html( $settings['phone'] ) . '</div>';
+		}
+		$html .= '<hr style="border:none;border-top:1px dashed #000;margin:6px 0;">';
+		$html .= '<div><strong>Order:</strong> ' . esc_html( $order['order_number'] ) . '</div>';
+		$html .= '<div><strong>Date:</strong> ' . esc_html( $order['order_date'] . ' ' . ( $order['created_at'] ?? '' ) ) . '</div>';
+		$html .= '<div><strong>Staff:</strong> ' . esc_html( $staff_name ) . '</div>';
+
+		if ( ! empty( $order['customer_name'] ) ) {
+			$html .= '<div><strong>Customer:</strong> ' . esc_html( $order['customer_name'] ) . '</div>';
+		}
+		if ( ! empty( $order['customer_phone'] ) ) {
+			$html .= '<div><strong>Phone:</strong> ' . esc_html( $order['customer_phone'] ) . '</div>';
+		}
+
+		$html .= '<hr style="border:none;border-top:1px dashed #000;margin:6px 0;">';
+		$html .= '<table style="width:100%;font-size:11px;">';
+		$html .= '<tr><th style="text-align:left;">Item</th><th style="text-align:right;">Qty</th><th style="text-align:right;">Price</th><th style="text-align:right;">Total</th></tr>';
+
+		foreach ( $items as $item ) {
+			$html .= '<tr>';
+			$html .= '<td>' . esc_html( $item['product_name'] ) . '</td>';
+			$html .= '<td style="text-align:right;">' . esc_html( (string) $item['quantity'] ) . '</td>';
+			$html .= '<td style="text-align:right;">₦' . number_format( (float) $item['product_price'], 0, '.', ',' ) . '</td>';
+			$html .= '<td style="text-align:right;">₦' . number_format( (float) $item['item_total'], 0, '.', ',' ) . '</td>';
+			$html .= '</tr>';
+			if ( ! empty( $item['extras'] ) ) {
+				$extras_data = is_string( $item['extras'] ) ? json_decode( $item['extras'], true ) : $item['extras'];
+				if ( is_array( $extras_data ) ) {
+					foreach ( $extras_data as $extra ) {
+						$html .= '<tr><td style="font-size:10px;color:#555;">&nbsp;&nbsp;+ ' . esc_html( $extra['name'] ?? '' ) . '</td>';
+						$html .= '<td></td><td></td>';
+						$html .= '<td style="text-align:right;font-size:10px;color:#555;">₦' . number_format( (float) ( $extra['price'] ?? 0 ), 0, '.', ',' ) . '</td></tr>';
+					}
+				}
+			}
+		}
+		$html .= '</table>';
+		$html .= '<hr style="border:none;border-top:1px dashed #000;margin:6px 0;">';
+		$html .= '<div style="text-align:right;font-size:13px;font-weight:bold;">Grand Total: ₦' . number_format( (float) $order['grand_total'], 0, '.', ',' ) . '</div>';
+		$html .= '<div style="font-size:11px;"><strong>Payment:</strong> ' . esc_html( str_replace( '_', ' + ', $order['payment_mode'] ) ) . '</div>';
+
+		if ( (float) $order['transfer_amount'] > 0 ) {
+			$html .= '<div style="font-size:11px;">Transfer: ₦' . number_format( (float) $order['transfer_amount'], 0, '.', ',' ) . '</div>';
+		}
+		if ( (float) $order['card_amount'] > 0 ) {
+			$html .= '<div style="font-size:11px;">Card: ₦' . number_format( (float) $order['card_amount'], 0, '.', ',' ) . '</div>';
+		}
+		if ( (float) $order['cash_amount'] > 0 ) {
+			$html .= '<div style="font-size:11px;">Cash: ₦' . number_format( (float) $order['cash_amount'], 0, '.', ',' ) . '</div>';
+		}
+
+		$html .= '<hr style="border:none;border-top:1px dashed #000;margin:6px 0;">';
+		$html .= '<div style="text-align:center;font-size:11px;">' . esc_html( $settings['receipt_footer'] ) . '</div>';
+		$html .= '<div style="text-align:center;font-size:10px;color:#888;margin-top:4px;">Powered by Bymoreish POS</div>';
+		$html .= '</div>';
 
 		$this->success(
 			[
 				'order'    => $order,
 				'items'    => $items,
 				'settings' => $settings,
+				'html'     => $html,
 			]
 		);
 	}
@@ -734,19 +837,24 @@ class Bymoreish_Ajax {
 	public function handle_bym_get_stock(): void {
 		$this->check_request();
 
-		$branch_id  = $this->resolve_branch_id( (int) ( $_POST['branch_id'] ?? 0 ) );
-		$stock_date = sanitize_text_field( wp_unslash( $_POST['stock_date'] ?? current_time( 'Y-m-d' ) ) );
+		$branch_id  = $this->resolve_branch_id( (int) ( $_POST['branch_id'] ?? $_POST['branch'] ?? 0 ) );
+		$stock_date = sanitize_text_field( wp_unslash( $_POST['stock_date'] ?? $_POST['date'] ?? current_time( 'Y-m-d' ) ) );
+		$page       = max( 1, (int) ( $_POST['page'] ?? 1 ) );
+		$per_page   = max( 1, (int) ( $_POST['per_page'] ?? 50 ) );
 
 		global $wpdb;
 		$s_table = 'bym_stock';
 		$p_table = 'bym_products';
+		$u_table = 'bym_users';
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT s.*, p.name AS product_name, p.unit AS product_unit
+				"SELECT s.*, p.name AS product_name, p.unit AS product_unit,
+				        u.full_name AS staff_name
 				   FROM {$s_table} s
 				   JOIN {$p_table} p ON p.id = s.product_id
+				   LEFT JOIN {$u_table} u ON u.id = s.staff_id
 				  WHERE s.branch_id  = %d
 				    AND s.stock_date = %s
 				  ORDER BY p.name ASC",
@@ -756,7 +864,18 @@ class Bymoreish_Ajax {
 			ARRAY_A
 		) ?: [];
 
-		$this->success( $rows );
+		$total  = count( $rows );
+		$pages  = (int) ceil( $total / $per_page );
+		$offset = ( $page - 1 ) * $per_page;
+		$paged  = array_slice( $rows, $offset, $per_page );
+
+		$this->success(
+			[
+				'records' => $paged,
+				'total'   => $total,
+				'pages'   => $pages,
+			]
+		);
 	}
 
 	// -----------------------------------------------------------------------
@@ -821,20 +940,25 @@ class Bymoreish_Ajax {
 	public function handle_bym_get_expenses(): void {
 		$this->check_request();
 
-		$branch_id = $this->resolve_branch_id( (int) ( $_POST['branch_id'] ?? 0 ) );
+		$branch_id = $this->resolve_branch_id( (int) ( $_POST['branch_id'] ?? $_POST['branch'] ?? 0 ) );
 		$date_from = sanitize_text_field( wp_unslash( $_POST['date_from'] ?? current_time( 'Y-m-d' ) ) );
 		$date_to   = sanitize_text_field( wp_unslash( $_POST['date_to']   ?? current_time( 'Y-m-d' ) ) );
+		$page      = max( 1, (int) ( $_POST['page'] ?? 1 ) );
+		$per_page  = max( 1, (int) ( $_POST['per_page'] ?? 20 ) );
 
 		global $wpdb;
 		$e_table = 'bym_expenses';
+		$u_table = 'bym_users';
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$expenses = $wpdb->get_results(
+		$all_expenses = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT * FROM {$e_table}
-				  WHERE branch_id    = %d
-				    AND expense_date BETWEEN %s AND %s
-				  ORDER BY expense_date DESC, id DESC",
+				"SELECT e.*, u.full_name AS staff_name
+				   FROM {$e_table} e
+				   LEFT JOIN {$u_table} u ON u.id = e.staff_id
+				  WHERE e.branch_id    = %d
+				    AND e.expense_date BETWEEN %s AND %s
+				  ORDER BY e.expense_date DESC, e.id DESC",
 				$branch_id,
 				$date_from,
 				$date_to
@@ -843,15 +967,33 @@ class Bymoreish_Ajax {
 		) ?: [];
 
 		$db = Bymoreish_Database::get_instance();
-		foreach ( $expenses as &$expense ) {
-			$expense['items'] = $db->get_rows(
+		$total = count( $all_expenses );
+		$monthly_total = 0.0;
+
+		foreach ( $all_expenses as &$expense ) {
+			$expense['items']      = $db->get_rows(
 				Bymoreish_Database::TABLE_EXPENSE_ITEMS,
 				[ 'expense_id' => (int) $expense['id'] ]
 			);
+			$expense['item_count'] = count( $expense['items'] );
+			$expense['date']       = $expense['expense_date'];
+			$monthly_total        += (float) $expense['grand_total'];
 		}
 		unset( $expense );
 
-		$this->success( $expenses );
+		// Pagination.
+		$pages    = (int) ceil( $total / $per_page );
+		$offset   = ( $page - 1 ) * $per_page;
+		$paged    = array_slice( $all_expenses, $offset, $per_page );
+
+		$this->success(
+			[
+				'expenses'      => $paged,
+				'total'         => $total,
+				'monthly_total' => $monthly_total,
+				'pages'         => $pages,
+			]
+		);
 	}
 
 	public function handle_bym_delete_expense(): void {
@@ -890,14 +1032,37 @@ class Bymoreish_Ajax {
 	public function handle_bym_get_financial_summary(): void {
 		$this->check_request();
 
-		$branch_id = $this->resolve_branch_id( (int) ( $_POST['branch_id'] ?? 0 ) );
+		$branch_id = $this->resolve_branch_id( (int) ( $_POST['branch_id'] ?? $_POST['branch'] ?? 0 ) );
 		$date_from = sanitize_text_field( wp_unslash( $_POST['date_from'] ?? current_time( 'Y-m-d' ) ) );
 		$date_to   = sanitize_text_field( wp_unslash( $_POST['date_to']   ?? current_time( 'Y-m-d' ) ) );
 
 		$db   = Bymoreish_Database::get_instance();
 		$rows = $db->get_financial_summary( $branch_id, $date_from, $date_to );
 
-		$this->success( $rows );
+		// Compute aggregate totals across all rows.
+		$totals = [
+			'total_sales'    => 0.0,
+			'transfer_sales' => 0.0,
+			'card_sales'     => 0.0,
+			'cash_sales'     => 0.0,
+			'total_expenses' => 0.0,
+			'profit'         => 0.0,
+		];
+		foreach ( $rows as $row ) {
+			$totals['total_sales']    += (float) ( $row['total_sales'] ?? 0 );
+			$totals['transfer_sales'] += (float) ( $row['transfer_sales'] ?? 0 );
+			$totals['card_sales']     += (float) ( $row['card_sales'] ?? 0 );
+			$totals['cash_sales']     += (float) ( $row['cash_sales'] ?? 0 );
+			$totals['total_expenses'] += (float) ( $row['total_expenses'] ?? 0 );
+			$totals['profit']         += (float) ( $row['profit'] ?? 0 );
+		}
+
+		$this->success(
+			[
+				'rows'   => $rows,
+				'totals' => $totals,
+			]
+		);
 	}
 
 	public function handle_bym_save_financial_summary(): void {

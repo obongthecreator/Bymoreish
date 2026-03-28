@@ -58,10 +58,13 @@ const StockPage = (() => {
 
     try {
       BymoreishApp.showLoading();
-      _rows = await BymoreishApp.bymAjax('bym_get_stock', {
+      const response = await BymoreishApp.bymAjax('bym_get_stock', {
         branch_id:  _getBranchId(),
         stock_date: date,
       });
+
+      // Handle both flat array and structured response.
+      _rows = Array.isArray(response) ? response : (response.records || []);
 
       if (!_rows || _rows.length === 0) {
         // Fallback: load products and pre-populate with zeros.
