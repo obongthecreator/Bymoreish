@@ -596,13 +596,22 @@ async function fetchKPIs() {
 		if (!data || !data.success) return;
 
 		const d = data.data;
-		if (d.revenue   !== undefined) document.getElementById('kpi-revenue').textContent   = formatNaira(d.revenue);
-		if (d.orders    !== undefined) document.getElementById('kpi-orders').textContent    = Number(d.orders).toLocaleString();
-		if (d.low_stock !== undefined) document.getElementById('kpi-low-stock').textContent = Number(d.low_stock).toLocaleString();
-		if (d.pending   !== undefined) document.getElementById('kpi-pending').textContent   = Number(d.pending).toLocaleString();
+		setKPI('kpi-revenue',   d.revenue,   formatNaira);
+		setKPI('kpi-orders',    d.orders,    function(v) { return Number(v).toLocaleString(); });
+		setKPI('kpi-low-stock', d.low_stock, function(v) { return Number(v).toLocaleString(); });
+		setKPI('kpi-pending',   d.pending,   function(v) { return Number(v).toLocaleString(); });
 	} catch (_) {
 		// Silently fail – KPIs are non-critical on load
 	}
+}
+
+/* ============================================================
+   KPI helper – update a single KPI element if value is present
+   ============================================================ */
+function setKPI(id, value, formatter) {
+	if (value === undefined || value === null) return;
+	const el = document.getElementById(id);
+	if (el) el.textContent = formatter(value);
 }
 
 /* ============================================================
