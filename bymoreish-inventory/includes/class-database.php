@@ -598,12 +598,29 @@ class Bymoreish_Database {
 	/**
 	 * Verifies a plain-text password against a stored hash.
 	 *
+	 * Uses wp_check_password() first (standard WordPress PHPass).
+	 * Falls back to PHP native password_verify() in case WP filters
+	 * interfere or the hash was created by password_hash() (bcrypt/Argon2).
+	 *
 	 * @param string $password   Plain-text password submitted by the user.
 	 * @param string $hash       Hash stored in the database.
 	 * @return bool
 	 */
 	public function verify_password( string $password, string $hash ): bool {
-		return (bool) wp_check_password( $password, $hash );
+		// Primary: WordPress portable hashes ($P$ prefix).
+		if ( function_exists( 'wp_check_password' ) ) {
+			$check = wp_check_password( $password, $hash );
+			if ( $check ) {
+				return true;
+			}
+		}
+
+		// Fallback: PHP native (bcrypt $2y$ / Argon2 $argon2id$ etc.)
+		if ( function_exists( 'password_verify' ) && password_verify( $password, $hash ) ) {
+			return true;
+		}
+
+		return false;
 	}
 
 	// -----------------------------------------------------------------------

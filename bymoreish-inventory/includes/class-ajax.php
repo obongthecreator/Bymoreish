@@ -136,11 +136,15 @@ class Bymoreish_Ajax {
 	/**
 	 * Send a JSON error response and terminate.
 	 *
+	 * Always returns HTTP 200 so that fetch() treats the response as
+	 * successful and the JS can read the JSON body. The 'success: false'
+	 * flag inside the payload is what the client checks.
+	 *
 	 * @param string $message
-	 * @param int    $code  HTTP status code.
+	 * @param int    $code  Unused – kept for API compat (always sends 200).
 	 */
 	private function error( string $message, int $code = 400 ): void {
-		wp_send_json_error( $message, $code );
+		wp_send_json_error( $message );
 	}
 
 	/**

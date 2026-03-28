@@ -435,7 +435,6 @@ $ajax_url   = admin_url( 'admin-ajax.php' );
 			headers:     { 'Content-Type': 'application/x-www-form-urlencoded' },
 			body:        body.toString(),
 		});
-		if (!res.ok) throw new Error('Network error: ' + res.status);
 		return res.json();
 	}
 
@@ -469,9 +468,15 @@ $ajax_url   = admin_url( 'admin-ajax.php' );
 			if (response && response.success) {
 				navigateTo(<?php echo wp_json_encode( home_url( '/bymoreish/home' ) ); ?>);
 			} else {
-				const msg = (response && response.data && response.data.message)
-					? response.data.message
-					: 'Invalid credentials. Please try again.';
+				// response.data may be a string or an object with a .message key.
+				let msg = 'Invalid credentials. Please try again.';
+				if (response && response.data) {
+					if (typeof response.data === 'string') {
+						msg = response.data;
+					} else if (response.data.message) {
+						msg = response.data.message;
+					}
+				}
 				showError(msg);
 				hideLoading();
 			}
