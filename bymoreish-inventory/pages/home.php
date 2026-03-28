@@ -584,7 +584,7 @@ sidebar.querySelectorAll('a').forEach(function(a) {
    ============================================================ */
 async function fetchKPIs() {
 	try {
-		const body = new URLSearchParams({ action: 'bym_dashboard_kpis' });
+		const body = new URLSearchParams({ action: 'bym_dashboard_kpis', nonce: window.bymConfig ? window.bymConfig.nonce : '' });
 		const res  = await fetch(BYM_AJAX_URL, {
 			method:      'POST',
 			credentials: 'same-origin',
@@ -595,11 +595,11 @@ async function fetchKPIs() {
 		const data = await res.json();
 		if (!data || !data.success) return;
 
-		const d = data.data;
-		setKPI('kpi-revenue',   d.revenue,   formatNaira);
-		setKPI('kpi-orders',    d.orders,    function(v) { return Number(v).toLocaleString(); });
+		const d = data.data || data;
+		setKPI('kpi-revenue',   d.today_revenue,   formatNaira);
+		setKPI('kpi-orders',    d.today_orders,    function(v) { return Number(v).toLocaleString(); });
 		setKPI('kpi-low-stock', d.low_stock, function(v) { return Number(v).toLocaleString(); });
-		setKPI('kpi-pending',   d.pending,   function(v) { return Number(v).toLocaleString(); });
+		setKPI('kpi-pending',   d.pending_orders,   function(v) { return Number(v).toLocaleString(); });
 	} catch (_) {
 		// Silently fail – KPIs are non-critical on load
 	}

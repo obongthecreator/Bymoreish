@@ -27,25 +27,31 @@ class Bymoreish_Ajax {
 		'bym_update_order_status',
 		'bym_delete_order',
 		'bym_get_orders',
+		'bym_get_order_items',
 		'bym_save_stock',
 		'bym_get_stock',
 		'bym_save_expense',
 		'bym_get_expenses',
+		'bym_get_expense_items',
 		'bym_delete_expense',
 		'bym_get_financial_summary',
 		'bym_save_financial_summary',
 		'bym_get_analytics',
+		'bym_dashboard_kpis',
 		'bym_save_product',
 		'bym_delete_product',
+		'bym_get_product_summary',
 		'bym_save_user',
+		'bym_get_users',
 		'bym_delete_user',
+		'bym_change_password',
 		'bym_upload_profile_picture',
 		'bym_update_settings',
 		'bym_get_settings',
 		'bym_delete_all_records',
-		'bym_get_product_summary',
 		'bym_format_currency',
 		'bym_generate_receipt',
+		'bym_get_receipt',
 	];
 
 	// Actions that do NOT require session auth (only nonce for bym_login; others are public helpers).
@@ -105,7 +111,7 @@ class Bymoreish_Ajax {
 			session_start();
 		}
 		$submitted = sanitize_text_field(
-			wp_unslash( $_POST['nonce'] ?? $_GET['nonce'] ?? '' )
+			wp_unslash( $_POST['nonce'] ?? $_POST['_bym_nonce'] ?? $_GET['nonce'] ?? $_GET['_bym_nonce'] ?? '' )
 		);
 		$stored = (string) ( $_SESSION['bym_nonce'] ?? '' );
 		return ! empty( $stored ) && hash_equals( $stored, $submitted );
@@ -119,10 +125,10 @@ class Bymoreish_Ajax {
 	 * Send a JSON success response and terminate.
 	 *
 	 * @param mixed  $data
-	 * @param string $message
+	 * @param string $message  Unused – kept for API compatibility.
 	 */
 	private function success( $data = null, string $message = 'Success' ): void {
-		wp_send_json_success( [ 'message' => $message, 'data' => $data ] );
+		wp_send_json_success( $data );
 	}
 
 	/**
@@ -132,7 +138,7 @@ class Bymoreish_Ajax {
 	 * @param int    $code  HTTP status code.
 	 */
 	private function error( string $message, int $code = 400 ): void {
-		wp_send_json_error( [ 'message' => $message ], $code );
+		wp_send_json_error( $message, $code );
 	}
 
 	/**
@@ -298,7 +304,7 @@ class Bymoreish_Ajax {
 		$unit        = sanitize_text_field( wp_unslash( $_POST['unit'] ?? '' ) );
 		$description = sanitize_textarea_field( wp_unslash( $_POST['description'] ?? '' ) );
 		$branch_id   = (int) ( $_POST['branch_id'] ?? 0 );
-		$is_active   = (int) ( (bool) ( $_POST['is_active'] ?? 1 ) );
+		$is_active   = (int) ( (bool) ( $_POST['is_active'] ?? $_POST['active'] ?? 1 ) );
 
 		if ( empty( $name ) ) {
 			$this->error( 'Product name is required.' );
@@ -546,7 +552,7 @@ class Bymoreish_Ajax {
 		$this->check_request();
 		$this->require_role( 'admin' );
 
-		$order_id = (int) ( $_POST['order_id'] ?? 0 );
+		$order_id = (int) ( $_POST['order_id'] ?? $_POST['id'] ?? 0 );
 		if ( $order_id <= 0 ) {
 			$this->error( 'Invalid order ID.' );
 		}
@@ -852,7 +858,7 @@ class Bymoreish_Ajax {
 		$this->check_request();
 		$this->require_role( 'admin' );
 
-		$expense_id = (int) ( $_POST['expense_id'] ?? 0 );
+		$expense_id = (int) ( $_POST['expense_id'] ?? $_POST['id'] ?? 0 );
 		if ( $expense_id <= 0 ) {
 			$this->error( 'Invalid expense ID.' );
 		}
@@ -1124,7 +1130,7 @@ class Bymoreish_Ajax {
 		$this->check_request();
 		$this->require_role( 'superadmin' );
 
-		$user_id = (int) ( $_POST['user_id'] ?? 0 );
+		$user_id = (int) ( $_POST['user_id'] ?? $_POST['id'] ?? 0 );
 		if ( $user_id <= 0 ) {
 			$this->error( 'Invalid user ID.' );
 		}
@@ -1145,18 +1151,21 @@ class Bymoreish_Ajax {
 		$this->check_request();
 
 		$user      = $this->current_user();
-		$target_id = (int) ( $_POST['user_id'] ?? $user['id'] );
+		$target_id = (int) ( $_POST['user_id'] ?? $_POST['id'] ?? $user['id'] );
 
 		// Non-superadmin users can only update their own picture.
 		if ( $user['role'] !== 'superadmin' && $target_id !== (int) $user['id'] ) {
 			$this->error( 'You can only update your own profile picture.', 403 );
 		}
 
-		if ( empty( $_FILES['profile_picture'] ) ) {
+		// Accept file from either 'profile_picture' or 'avatar' field names.
+		if ( ! empty( $_FILES['profile_picture'] ) ) {
+			$file = $_FILES['profile_picture'];
+		} elseif ( ! empty( $_FILES['avatar'] ) ) {
+			$file = $_FILES['avatar'];
+		} else {
 			$this->error( 'No file uploaded.' );
 		}
-
-		$file = $_FILES['profile_picture'];
 
 		if ( $file['error'] !== UPLOAD_ERR_OK ) {
 			$this->error( 'File upload error.' );
@@ -1297,6 +1306,212 @@ class Bymoreish_Ajax {
 		$symbol = sanitize_text_field( wp_unslash( $_POST['symbol'] ?? '₦' ) );
 		$formatted = $symbol . number_format( $amount, 2 );
 		$this->success( [ 'formatted' => $formatted, 'amount' => $amount ] );
+	}
+
+	// -----------------------------------------------------------------------
+	// 12. Dashboard KPIs
+	// -----------------------------------------------------------------------
+
+	public function handle_bym_dashboard_kpis(): void {
+		$this->check_request();
+
+		$user      = $this->current_user();
+		$branch_id = $this->resolve_branch_id( null );
+		$today     = current_time( 'Y-m-d' );
+
+		global $wpdb;
+		$o_table = 'bym_orders';
+		$s_table = 'bym_stock';
+		$e_table = 'bym_expenses';
+
+		// Today's revenue (delivered orders).
+		$today_revenue = (float) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COALESCE(SUM(grand_total), 0) FROM {$o_table}
+				 WHERE branch_id = %d AND order_date = %s AND status = 'delivered'",
+				$branch_id,
+				$today
+			)
+		);
+
+		// Today's order count.
+		$today_orders = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(id) FROM {$o_table}
+				 WHERE branch_id = %d AND order_date = %s",
+				$branch_id,
+				$today
+			)
+		);
+
+		// Pending orders (not yet delivered).
+		$pending_orders = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(id) FROM {$o_table}
+				 WHERE branch_id = %d AND order_date = %s AND status != 'delivered'",
+				$branch_id,
+				$today
+			)
+		);
+
+		// Low stock alerts (items with stock_left <= 5 from latest stock date).
+		$low_stock = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$s_table}
+				 WHERE branch_id = %d AND stock_date = %s AND stock_left <= 5",
+				$branch_id,
+				$today
+			)
+		);
+
+		// Today's expenses.
+		$today_expenses = (float) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COALESCE(SUM(grand_total), 0) FROM {$e_table}
+				 WHERE branch_id = %d AND expense_date = %s",
+				$branch_id,
+				$today
+			)
+		);
+
+		$this->success(
+			[
+				'today_revenue'   => $today_revenue,
+				'today_orders'    => $today_orders,
+				'pending_orders'  => $pending_orders,
+				'low_stock'       => $low_stock,
+				'today_expenses'  => $today_expenses,
+				'today_profit'    => $today_revenue - $today_expenses,
+			]
+		);
+	}
+
+	// -----------------------------------------------------------------------
+	// 13. Change password
+	// -----------------------------------------------------------------------
+
+	public function handle_bym_change_password(): void {
+		$this->check_request();
+
+		$user_id          = (int) ( $_POST['id'] ?? 0 );
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$current_password = wp_unslash( $_POST['current_password'] ?? '' );
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$new_password     = wp_unslash( $_POST['new_password'] ?? '' );
+
+		$current_user = $this->current_user();
+
+		// Users can only change their own password unless superadmin.
+		if ( $current_user['role'] !== 'superadmin' && (int) $current_user['id'] !== $user_id ) {
+			$this->error( 'You can only change your own password.', 403 );
+		}
+
+		if ( empty( $current_password ) || empty( $new_password ) ) {
+			$this->error( 'Current password and new password are required.' );
+		}
+
+		if ( strlen( $new_password ) < 6 ) {
+			$this->error( 'New password must be at least 6 characters.' );
+		}
+
+		$auth   = Bymoreish_Auth::get_instance();
+		$result = $auth->change_password( $user_id, $current_password, $new_password );
+
+		if ( ! $result ) {
+			$this->error( 'Current password is incorrect or user not found.' );
+		}
+
+		$this->success( null, 'Password changed successfully.' );
+	}
+
+	// -----------------------------------------------------------------------
+	// 14. Get order items (for history expansion)
+	// -----------------------------------------------------------------------
+
+	public function handle_bym_get_order_items(): void {
+		$this->check_request();
+
+		$order_id = (int) ( $_POST['order_id'] ?? 0 );
+		if ( $order_id <= 0 ) {
+			$this->error( 'Invalid order ID.' );
+		}
+
+		$db    = Bymoreish_Database::get_instance();
+		$items = $db->get_order_items( $order_id );
+
+		// Map field names for frontend consumption.
+		$mapped = array_map( function ( $item ) {
+			return [
+				'id'         => $item['id'] ?? 0,
+				'name'       => $item['product_name'] ?? '',
+				'qty'        => $item['quantity'] ?? 0,
+				'unit_price' => $item['product_price'] ?? '0.00',
+				'extras'     => $item['extras'] ?? '',
+				'total'      => $item['item_total'] ?? '0.00',
+			];
+		}, $items );
+
+		$this->success( $mapped );
+	}
+
+	// -----------------------------------------------------------------------
+	// 15. Get expense items (for history expansion)
+	// -----------------------------------------------------------------------
+
+	public function handle_bym_get_expense_items(): void {
+		$this->check_request();
+
+		$expense_id = (int) ( $_POST['expense_id'] ?? 0 );
+		if ( $expense_id <= 0 ) {
+			$this->error( 'Invalid expense ID.' );
+		}
+
+		$db    = Bymoreish_Database::get_instance();
+		$items = $db->get_rows(
+			Bymoreish_Database::TABLE_EXPENSE_ITEMS,
+			[ 'expense_id' => $expense_id ]
+		);
+
+		// Map field names for frontend consumption.
+		$mapped = array_map( function ( $item ) {
+			return [
+				'id'        => $item['id'] ?? 0,
+				'name'      => $item['description'] ?? '',
+				'qty'       => $item['quantity'] ?? 0,
+				'unit_cost' => $item['price'] ?? '0.00',
+				'total'     => $item['total'] ?? '0.00',
+			];
+		}, $items );
+
+		$this->success( $mapped );
+	}
+
+	// -----------------------------------------------------------------------
+	// 16. Get users (for admin panel)
+	// -----------------------------------------------------------------------
+
+	public function handle_bym_get_users(): void {
+		$this->check_request();
+		$this->require_role( 'admin' );
+
+		$db    = Bymoreish_Database::get_instance();
+		$users = $db->get_rows( Bymoreish_Database::TABLE_USERS, [], 'full_name ASC' );
+
+		// Strip password hashes from the response.
+		foreach ( $users as &$user ) {
+			unset( $user['password_hash'] );
+		}
+		unset( $user );
+
+		$this->success( $users );
+	}
+
+	// -----------------------------------------------------------------------
+	// 17. Get receipt (alias for generate_receipt, used in history pages)
+	// -----------------------------------------------------------------------
+
+	public function handle_bym_get_receipt(): void {
+		$this->handle_bym_generate_receipt();
 	}
 
 	// -----------------------------------------------------------------------
