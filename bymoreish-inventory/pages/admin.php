@@ -251,7 +251,7 @@ async function bymAjax(action, data={}) {
 
 // --- Products ---
 async function loadProducts() {
-  const res = await bymAjax('bym_get_products');
+  const res = await bymAjax('bym_get_products', {include_inactive: 1});
   const tbody = document.getElementById('products-tbody');
   if (!res.success || !res.data.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-white/40">No products found.</td></tr>'; return;
@@ -262,7 +262,7 @@ async function loadProducts() {
       <td class="py-3 px-2 text-white/60">${escHtml(p.category||'')}</td>
       <td class="py-3 px-2">₦${Number(p.price||0).toLocaleString()}</td>
       <td class="py-3 px-2 text-white/60">${escHtml(p.unit||'')}</td>
-      <td class="py-3 px-2"><span class="px-2 py-0.5 rounded-full text-xs font-bold ${p.active=='1'?'bg-green-500/20 text-green-400':'bg-red-500/20 text-red-400'}">${p.active=='1'?'Yes':'No'}</span></td>
+      <td class="py-3 px-2"><span class="px-2 py-0.5 rounded-full text-xs font-bold ${p.is_active=='1'?'bg-green-500/20 text-green-400':'bg-red-500/20 text-red-400'}">${p.is_active=='1'?'Yes':'No'}</span></td>
       <td class="py-3 px-2 flex gap-2">
         <button onclick="openProductModal(${JSON.stringify(p).replace(/"/g,'&quot;')})" class="p-1.5 rounded-lg bg-yellow-400/20 hover:bg-yellow-400/40 text-yellow-400"><iconify-icon icon="solar:pen-bold"></iconify-icon></button>
         <button onclick="deleteProduct(${p.id})" class="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/40 text-red-400"><iconify-icon icon="solar:trash-bin-trash-bold"></iconify-icon></button>
@@ -277,7 +277,7 @@ function openProductModal(p=null) {
   document.getElementById('product-category').value = p ? (p.category||'') : '';
   document.getElementById('product-price').value = p ? p.price : '';
   document.getElementById('product-unit').value = p ? (p.unit||'') : '';
-  document.getElementById('product-active').checked = !p || p.active == '1';
+  document.getElementById('product-active').checked = !p || p.is_active == '1';
   const ec = document.getElementById('extras-container');
   ec.innerHTML = '';
   if (p && p.extras) {
@@ -308,7 +308,7 @@ async function saveProduct() {
     category: document.getElementById('product-category').value,
     price: document.getElementById('product-price').value,
     unit: document.getElementById('product-unit').value,
-    active: document.getElementById('product-active').checked ? 1 : 0,
+    is_active: document.getElementById('product-active').checked ? 1 : 0,
     extras: JSON.stringify(extras)
   });
   if (res.success) { showToast('Product saved!'); closeModal('product-modal'); loadProducts(); }
@@ -335,7 +335,7 @@ async function loadUsers() {
       <td class="py-3 px-2 text-white/60">${escHtml(u.username)}</td>
       <td class="py-3 px-2"><span class="px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-400/20 text-yellow-400">${escHtml(u.role)}</span></td>
       <td class="py-3 px-2 text-white/60">Branch ${escHtml(String(u.branch||1))}</td>
-      <td class="py-3 px-2"><span class="px-2 py-0.5 rounded-full text-xs font-bold ${u.active=='1'?'bg-green-500/20 text-green-400':'bg-red-500/20 text-red-400'}">${u.active=='1'?'Active':'Inactive'}</span></td>
+      <td class="py-3 px-2"><span class="px-2 py-0.5 rounded-full text-xs font-bold ${u.is_active=='1'?'bg-green-500/20 text-green-400':'bg-red-500/20 text-red-400'}">${u.is_active=='1'?'Active':'Inactive'}</span></td>
       <td class="py-3 px-2 flex gap-2">
         <button onclick="openUserModal(${JSON.stringify(u).replace(/"/g,'&quot;')})" class="p-1.5 rounded-lg bg-yellow-400/20 hover:bg-yellow-400/40 text-yellow-400"><iconify-icon icon="solar:pen-bold"></iconify-icon></button>
         ${isSuperadmin ? `<button onclick="deleteUser(${u.id})" class="p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/40 text-red-400"><iconify-icon icon="solar:trash-bin-trash-bold"></iconify-icon></button>` : ''}
@@ -353,7 +353,7 @@ function openUserModal(u=null) {
   document.getElementById('user-phone').value = u ? (u.phone||'') : '';
   document.getElementById('user-role').value = u ? u.role : 'staff';
   document.getElementById('user-branch').value = u ? (u.branch||1) : 1;
-  document.getElementById('user-active').checked = !u || u.active == '1';
+  document.getElementById('user-active').checked = !u || u.is_active == '1';
   document.getElementById('user-modal').classList.remove('hidden');
 }
 
@@ -367,7 +367,7 @@ async function saveUser() {
     phone: document.getElementById('user-phone').value,
     role: document.getElementById('user-role').value,
     branch: document.getElementById('user-branch').value,
-    active: document.getElementById('user-active').checked ? 1 : 0
+    is_active: document.getElementById('user-active').checked ? 1 : 0
   });
   if (res.success) { showToast('User saved!'); closeModal('user-modal'); loadUsers(); }
   else showToast(res.data || 'Error saving user.', false);

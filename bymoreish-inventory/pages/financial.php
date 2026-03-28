@@ -23,7 +23,7 @@ $user_id      = $current_user['id'];
 $branch_id    = $current_user['branch'];
 $plugin_url   = BYMOREISH_PLUGIN_URL;
 $ajax_url     = admin_url( 'admin-ajax.php' );
-$nonce        = wp_create_nonce( 'bymoreish_nonce' );
+$nonce        = $bymoreish_nonce ?? '';
 $logout_url   = home_url( '/bymoreish/login?action=logout&_bym_nonce=' . rawurlencode( (string) ( $_SESSION['bym_nonce'] ?? '' ) ) );
 
 $is_admin = in_array( $user_role, [ 'admin', 'superadmin' ], true );

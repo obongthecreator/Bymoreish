@@ -262,22 +262,38 @@ class Bymoreish_Ajax {
 	public function handle_bym_get_products(): void {
 		$this->check_request();
 
-		$db        = Bymoreish_Database::get_instance();
-		$branch_id = (int) ( $_POST['branch_id'] ?? $_GET['branch_id'] ?? 0 );
+		$db             = Bymoreish_Database::get_instance();
+		$branch_id      = (int) ( $_POST['branch_id'] ?? $_GET['branch_id'] ?? 0 );
+		$include_all    = (int) ( $_POST['include_inactive'] ?? $_GET['include_inactive'] ?? 0 );
 
 		if ( $branch_id > 0 ) {
 			global $wpdb;
 			$products_table = 'bym_products';
-			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$products = $wpdb->get_results(
-				$wpdb->prepare(
-					"SELECT * FROM {$products_table} WHERE (branch_id = %d OR branch_id IS NULL) AND is_active = 1 ORDER BY category ASC, name ASC",
-					$branch_id
-				),
-				ARRAY_A
-			) ?: [];
+			if ( $include_all ) {
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$products = $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT * FROM {$products_table} WHERE (branch_id = %d OR branch_id IS NULL) ORDER BY category ASC, name ASC",
+						$branch_id
+					),
+					ARRAY_A
+				) ?: [];
+			} else {
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$products = $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT * FROM {$products_table} WHERE (branch_id = %d OR branch_id IS NULL) AND is_active = 1 ORDER BY category ASC, name ASC",
+						$branch_id
+					),
+					ARRAY_A
+				) ?: [];
+			}
 		} else {
-			$products = $db->get_rows( Bymoreish_Database::TABLE_PRODUCTS, [ 'is_active' => 1 ], 'category ASC, name ASC' );
+			if ( $include_all ) {
+				$products = $db->get_rows( Bymoreish_Database::TABLE_PRODUCTS, [], 'category ASC, name ASC' );
+			} else {
+				$products = $db->get_rows( Bymoreish_Database::TABLE_PRODUCTS, [ 'is_active' => 1 ], 'category ASC, name ASC' );
+			}
 		}
 
 		// Attach extras to each product.
