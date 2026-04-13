@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build artifacts
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# WordPress uploads (managed by site, not repo)
+uploads/
+
+# Logs
+*.log
+debug.log
+
+# Environment
+.env
+.env.local
